@@ -724,7 +724,6 @@ function equivalenceSnapshot(equivalence: EquivalenceView): EquivalenceSnapshot 
       quantity: item.quantity,
       unitSymbol: item.unitSymbol,
     }))
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
   return { page: equivalence.page, note: equivalence.note, items }
 }
 
