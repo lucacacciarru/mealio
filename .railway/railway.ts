@@ -29,7 +29,7 @@ export default defineRailway(() => {
     },
     replicas: { 'europe-west4': 1 },
     volumeMounts: {
-      '/data': volume('mealio-data', { sizeMB: 1024 }),
+      '/data': volume('mealio-data', { sizeMB: 1024, region: 'europe-west4-drams3a' }),
     },
   })
 
