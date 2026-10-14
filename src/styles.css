@@ -1,0 +1,215 @@
+
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #27332c;
+  background: #f5f3ed;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  --ink: #27332c;
+  --muted: #798078;
+  --paper: #fffefa;
+  --line: #e5e3db;
+  --green: #386b4b;
+  --green-dark: #28543a;
+  --sage: #e8efe5;
+  --error: #a13c34;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 16% 12%, rgba(218, 231, 212, .55), transparent 34rem),
+    radial-gradient(ellipse at 92% 92%, rgba(233, 223, 203, .44), transparent 32rem),
+    #f5f3ed;
+}
+
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .68; }
+
+.page-shell {
+  width: min(100% - 48px, 1100px);
+  min-height: 100vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(39, 51, 44, .1);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font: 800 21px/1 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: -.06em;
+}
+
+.brand-mark {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border-radius: 11px 11px 11px 4px;
+  background: var(--green);
+  color: white;
+  font: 800 19px/1 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.topbar-note, .footer-note {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: .02em;
+}
+
+.panel {
+  width: min(100%, 496px);
+  margin: auto;
+  padding: 54px 56px 49px;
+  border: 1px solid rgba(39, 51, 44, .08);
+  border-radius: 22px;
+  background: rgba(255, 254, 250, .9);
+  box-shadow: 0 22px 70px rgba(42, 52, 42, .08);
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 21px;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+h1 {
+  max-width: 360px;
+  margin: 0;
+  font: 700 clamp(31px, 5vw, 39px)/1.12 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: -.055em;
+}
+
+.panel > p {
+  margin: 15px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.login-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.login-form label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.password-field {
+  position: relative;
+}
+
+.login-form input {
+  width: 100%;
+  height: 49px;
+  padding: 0 76px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.login-form input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(56, 107, 75, .12);
+}
+.password-visibility {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.password-visibility:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.primary-button, .secondary-button {
+  min-height: 49px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 600;
+  transition: background .15s ease, transform .15s ease;
+}
+
+.primary-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 7px;
+  padding: 0 16px;
+  background: var(--green);
+  color: white;
+}
+
+.primary-button:hover:not(:disabled) { background: var(--green-dark); transform: translateY(-1px); }
+.primary-button span { font-size: 18px; }
+
+.secondary-button {
+  margin-top: 28px;
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.secondary-button:hover:not(:disabled) { background: var(--sage); }
+
+.privacy-note {
+  margin-top: 22px !important;
+  font-size: 12px !important;
+}
+
+.message {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error-message { color: var(--error); }
+.loading-panel { min-height: 250px; }
+.footer-note { padding: 22px 0 27px; text-align: center; }
+
+@media (max-width: 600px) {
+  .page-shell { width: min(100% - 32px, 1100px); }
+  .topbar { height: 72px; }
+  .panel { padding: 38px 25px 34px; border-radius: 17px; }
+  .topbar-note { font-size: 12px; }
+}
