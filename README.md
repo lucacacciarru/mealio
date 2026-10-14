@@ -52,9 +52,9 @@ Imposta questi valori come variabili Railway sul servizio `mealio` in `productio
 - `SESSION_SECRET`: almeno 32 byte casuali.
 - `ADMIN_PASSWORD_HASH`: output di `pnpm auth:hash`.
 - `BACKUP_ENCRYPTION_KEY`: 32 byte casuali codificati in Base64. Conservalo fuori da Railway anche in un password manager: serve per decifrare i backup.
-- `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`: valori di `railway bucket credentials --bucket mealio-backups --json`.
+- `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_REGION`: rispettivamente `endpoint`, `accessKeyId`, `secretAccessKey`, `bucketName`, `region` da `railway bucket credentials --bucket mealio-backups --json`.
 
-Il nome bucket `mealio-backups` e la regione `ams` sono già dichiarati in IaC. Le variabili sensibili restano `preserve()` nel file IaC.
+Il bucket è creato in `ams`, ma Railway assegna un nome S3 effettivo distinto dal nome risorsa; anche la region S3 può differire dalla regione di creazione. Imposta i valori restituiti dalle credenziali. Le variabili sensibili restano `preserve()` nel file IaC.
 
 La sessione dura 30 giorni; il cookie è `HttpOnly`, `SameSite=Lax` e `Secure` in produzione. Il login consente al massimo 5 tentativi per indirizzo IP ogni 15 minuti; l'indirizzo è memorizzato solo come HMAC con `SESSION_SECRET`. Il campo password è nascosto per impostazione predefinita e dispone del controllo Mostra/Nascondi.
 
