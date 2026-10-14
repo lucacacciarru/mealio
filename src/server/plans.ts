@@ -35,9 +35,48 @@ const SLOT_ORDER: Record<PlanSlot, number> = {
 const VALID_FROM_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 function assertValidFrom(validFrom: string): void {
-  if (!VALID_FROM_PATTERN.test(validFrom) || Number.isNaN(Date.parse(`${validFrom}T00:00:00Z`))) {
+  if (!VALID_FROM_PATTERN.test(validFrom)) {
     throw new Error(`Data di validità non valida: "${validFrom}". Usa il formato AAAA-MM-GG.`)
   }
+  const date = new Date(`${validFrom}T00:00:00Z`)
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== validFrom) {
+    throw new Error(`Data di validità non valida: "${validFrom}". Usa il formato AAAA-MM-GG.`)
+  }
+}
+
+function assertVersionIsDraft(versionId: number): void {
+  const version = db
+    .select({ activatedAt: planVersions.activatedAt })
+    .from(planVersions)
+    .where(eq(planVersions.id, versionId))
+    .get()
+  if (!version) throw new Error('Versione del piano non trovata.')
+  if (version.activatedAt !== null) {
+    throw new Error('Non è possibile modificare una versione già attiva.')
+  }
+}
+
+function assertMealVersionIsDraft(mealId: number): void {
+  const meal = db
+    .select({ versionId: planDays.versionId })
+    .from(planMeals)
+    .innerJoin(planDays, eq(planMeals.dayId, planDays.id))
+    .where(eq(planMeals.id, mealId))
+    .get()
+  if (!meal) throw new Error('Pasto non trovato.')
+  assertVersionIsDraft(meal.versionId)
+}
+
+function assertComponentVersionIsDraft(componentId: number): void {
+  const component = db
+    .select({ versionId: planDays.versionId })
+    .from(planComponents)
+    .innerJoin(planMeals, eq(planComponents.mealId, planMeals.id))
+    .innerJoin(planDays, eq(planMeals.dayId, planDays.id))
+    .where(eq(planComponents.id, componentId))
+    .get()
+  if (!component) throw new Error('Componente non trovato.')
+  assertVersionIsDraft(component.versionId)
 }
 
 function todayInRome(): string {
@@ -185,6 +224,7 @@ export function ensureMeal(
       .where(and(eq(planDays.versionId, versionId), eq(planDays.dayIndex, dayIndex)))
       .get()
     if (!day) throw new Error(`Giorno ${dayIndex + 1} non trovato nella versione ${versionId}.`)
+    assertVersionIsDraft(day.versionId)
     const existing = db
       .select()
       .from(planMeals)
@@ -222,6 +262,7 @@ export function addComponent(mealId: number, input: AddComponentInput): number {
   const label = input.label.trim()
   if (!label) throw new Error('Etichetta alimento mancante.')
   return db.transaction(() => {
+    assertMealVersionIsDraft(mealId)
     const last = db
       .select({ position: planComponents.position })
       .from(planComponents)
@@ -254,15 +295,10 @@ export function addComponent(mealId: number, input: AddComponentInput): number {
 // Links an unrecognized extracted component to a catalog food during review;
 // optionally registers the extracted label as a reusable alias.
 export function linkComponentToFood(componentId: number, foodId: number, alias?: string): void {
-  const component = db
-    .select()
-    .from(planComponents)
-    .where(eq(planComponents.id, componentId))
-    .get()
-  if (!component) throw new Error('Componente non trovato.')
-  const food = db.select().from(catalogFoods).where(eq(catalogFoods.id, foodId)).get()
-  if (!food) throw new Error('Alimento del catalogo non trovato.')
   db.transaction(() => {
+    assertComponentVersionIsDraft(componentId)
+    const food = db.select().from(catalogFoods).where(eq(catalogFoods.id, foodId)).get()
+    if (!food) throw new Error('Alimento del catalogo non trovato.')
     db.update(planComponents)
       .set({ foodId })
       .where(eq(planComponents.id, componentId))
@@ -289,22 +325,19 @@ export function recordComponentConfirmation(
     printedUnitId: number | null
   },
 ): void {
-  const component = db
-    .select()
-    .from(planComponents)
-    .where(eq(planComponents.id, componentId))
-    .get()
-  if (!component) throw new Error('Componente non trovato.')
-  db.update(planComponents)
-    .set({
-      quantity: input.quantity,
-      unitId: input.unitId,
-      printedQuantity: input.printedQuantity,
-      printedUnitId: input.printedUnitId,
-      confirmedAt: Date.now(),
-    })
-    .where(eq(planComponents.id, componentId))
-    .run()
+  db.transaction(() => {
+    assertComponentVersionIsDraft(componentId)
+    db.update(planComponents)
+      .set({
+        quantity: input.quantity,
+        unitId: input.unitId,
+        printedQuantity: input.printedQuantity,
+        printedUnitId: input.printedUnitId,
+        confirmedAt: Date.now(),
+      })
+      .where(eq(planComponents.id, componentId))
+      .run()
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -320,14 +353,17 @@ export type AddEquivalenceInput = {
 }
 
 export function addEquivalence(versionId: number, input: AddEquivalenceInput): number {
+  if (
+    input.scopeComponentId !== null &&
+    input.scopeComponentId !== undefined &&
+    input.scopeMealId !== null &&
+    input.scopeMealId !== undefined
+  ) {
+    throw new Error('Un’equivalenza non può avere ambiti pasto e componente contemporaneamente.')
+  }
   if (!input.items.length) throw new Error('Un’equivalenza richiede almeno un elemento.')
   return db.transaction(() => {
-    const version = db
-      .select()
-      .from(planVersions)
-      .where(eq(planVersions.id, versionId))
-      .get()
-    if (!version) throw new Error('Versione del piano non trovata.')
+    assertVersionIsDraft(versionId)
     if (input.scopeComponentId !== null && input.scopeComponentId !== undefined) {
       const scopeComponent = db
         .select({ versionId: planDays.versionId })
@@ -606,6 +642,23 @@ export type ComponentSnapshot = {
   printedUnitSymbol: string | null
   state: PlanComponentState
   foodCanonicalName: string | null
+  alternativeGroup: string | null
+  page: number | null
+  notes: string | null
+}
+
+export type EquivalenceItemSnapshot = {
+  label: string
+  foodId: number | null
+  foodCanonicalName: string | null
+  quantity: number | null
+  unitSymbol: string | null
+}
+
+export type EquivalenceSnapshot = {
+  page: number | null
+  note: string | null
+  items: EquivalenceItemSnapshot[]
 }
 
 export type ComponentDiffEntry = {
@@ -628,8 +681,8 @@ export type MealDiffEntry = {
 export type EquivalenceDiffEntry = {
   kind: 'added' | 'removed' | 'changed'
   scopeLabel: string
-  itemsBefore: string[]
-  itemsAfter: string[]
+  before: EquivalenceSnapshot | null
+  after: EquivalenceSnapshot | null
 }
 
 export type PlanDiff = {
@@ -648,6 +701,9 @@ function snapshotOf(component: PlanComponentView): ComponentSnapshot {
     printedUnitSymbol: component.printedUnitSymbol,
     state: component.state,
     foodCanonicalName: component.foodCanonicalName,
+    alternativeGroup: component.alternativeGroup,
+    page: component.page,
+    notes: component.notes,
   }
 }
 
@@ -659,10 +715,17 @@ function equivalenceScopeLabel(equivalence: EquivalenceView): string {
   return `${equivalence.scope.dayName} · ${equivalence.scope.slot}`
 }
 
-function itemLabel(item: { label: string; quantity: number | null; unitSymbol: string | null }): string {
-  return item.quantity === null
-    ? item.label
-    : `${item.label} (${item.quantity} ${item.unitSymbol ?? ''})`.trim()
+function equivalenceSnapshot(equivalence: EquivalenceView): EquivalenceSnapshot {
+  const items = equivalence.items
+    .map((item) => ({
+      label: item.label,
+      foodId: item.foodId,
+      foodCanonicalName: item.foodCanonicalName,
+      quantity: item.quantity,
+      unitSymbol: item.unitSymbol,
+    }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  return { page: equivalence.page, note: equivalence.note, items }
 }
 
 export function diffPlanVersions(fromVersionId: number, toVersionId: number): PlanDiff {
@@ -772,7 +835,7 @@ export function diffPlanVersions(fromVersionId: number, toVersionId: number): Pl
     return `unresolved:${equivalence.id}`
   }
   const signature = (equivalence: EquivalenceView): string =>
-    JSON.stringify(equivalence.items.map(itemLabel).sort())
+    JSON.stringify(equivalenceSnapshot(equivalence))
   const fromGroups = new Map<string, EquivalenceView[]>()
   const toGroups = new Map<string, EquivalenceView[]>()
   for (const equivalence of from.equivalences) {
@@ -797,26 +860,26 @@ export function diffPlanVersions(fromVersionId: number, toVersionId: number): Pl
     const label = equivalenceScopeLabel(beforeList[0] ?? afterList[0])
     const compared = Math.min(beforeList.length, afterList.length)
     for (let index = 0; index < compared; index += 1) {
-      const itemsBefore = beforeList[index].items.map(itemLabel)
-      const itemsAfter = afterList[index].items.map(itemLabel)
-      if (JSON.stringify(itemsBefore) !== JSON.stringify(itemsAfter)) {
-        equivalences.push({ kind: 'changed', scopeLabel: label, itemsBefore, itemsAfter })
+      const before = equivalenceSnapshot(beforeList[index])
+      const after = equivalenceSnapshot(afterList[index])
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        equivalences.push({ kind: 'changed', scopeLabel: label, before, after })
       }
     }
     for (const removed of beforeList.slice(compared)) {
       equivalences.push({
         kind: 'removed',
         scopeLabel: label,
-        itemsBefore: removed.items.map(itemLabel),
-        itemsAfter: [],
+        before: equivalenceSnapshot(removed),
+        after: null,
       })
     }
     for (const added of afterList.slice(compared)) {
       equivalences.push({
         kind: 'added',
         scopeLabel: label,
-        itemsBefore: [],
-        itemsAfter: added.items.map(itemLabel),
+        before: null,
+        after: equivalenceSnapshot(added),
       })
     }
   }
