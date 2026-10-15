@@ -20,6 +20,7 @@ type ImportSummary = {
   byteSize: number
   status: ImportStatus
   createdAt: number
+  sourceAvailable: boolean
 }
 type CatalogFood = {
   id: number
@@ -490,7 +491,9 @@ export function PlanImportWorkspace() {
                         <strong>{item.originalName}</strong>
                         <small>{new Date(item.createdAt).toLocaleString('it-IT')} · {formatBytes(item.byteSize)}</small>
                       </span>
-                      <span className={`status-pill status-${item.status}`}>{statusLabel(item.status)}</span>
+                      <span className={`status-pill status-${item.status}`}>
+                        {item.sourceAvailable ? statusLabel(item.status) : 'PDF non disponibile'}
+                      </span>
                     </button>
                   </li>
                 ))}
@@ -514,16 +517,32 @@ export function PlanImportWorkspace() {
           <div className="import-review-layout">
             <section className="pdf-preview" aria-labelledby="source-pdf-title">
               <h3 id="source-pdf-title">PDF originale</h3>
-              <iframe
-                key={detail.id}
-                src={`/api/imports?id=${encodeURIComponent(detail.id)}&file=1`}
-                title={`PDF originale: ${detail.originalName}`}
-              />
-              <p>Le pagine e le citazioni estratte devono essere confrontate con questo documento.</p>
+              {detail.sourceAvailable ? (
+                <>
+                  <iframe
+                    key={detail.id}
+                    src={`/api/imports?id=${encodeURIComponent(detail.id)}&file=1`}
+                    title={`PDF originale: ${detail.originalName}`}
+                  />
+                  <p>Le pagine e le citazioni estratte devono essere confrontate con questo documento.</p>
+                </>
+              ) : (
+                <p className="privacy-note" role="status">
+                  {detail.status === 'uploaded'
+                    ? 'Il PDF originale non è disponibile nello storage. Ricarica il documento per avviare l’estrazione.'
+                    : 'Il PDF originale non è disponibile nello storage. I dati e le citazioni salvate restano consultabili, ma non puoi confrontarli con il documento.'}
+                </p>
+              )}
             </section>
 
             <div className="review-column">
-              {detail.status === 'uploaded' && (
+              {detail.status === 'uploaded' && !detail.sourceAvailable && (
+                <section className="import-step-card" aria-labelledby="missing-source-title">
+                  <h3 id="missing-source-title">Estrazione non disponibile</h3>
+                  <p>Ricarica il PDF originale prima di avviare l’estrazione.</p>
+                </section>
+              )}
+              {detail.status === 'uploaded' && detail.sourceAvailable && (
                 <section className="import-step-card">
                   <span className="step-number">2</span>
                   <h3>Estrazione assistita</h3>

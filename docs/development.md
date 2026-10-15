@@ -23,7 +23,7 @@ The local UI is available at `http://localhost:3000`. `.env`, the SQLite databas
 
 Set `GEMINI_API_KEY` in the local `.env` to enable extraction. `GEMINI_MODEL` defaults to `gemini-3.8-flash`. Keep the key out of source control and Railway config values; configure it as a private Railway variable in production. The import accepts PDF files up to 15 MB.
 
-The uploaded original is stored under `DATA_DIRECTORY/imports/` with private file permissions. If `DATA_DIRECTORY` is unset, imports use the directory containing `DATABASE_PATH` (the Railway volume mounted at `/data` in production). The PDF is not sent to Google when it is uploaded. The authenticated user must check the authorization box and choose **Autorizza e avvia estrazione**; that sends the complete PDF to Google Gemini for structured JSON Schema extraction through the Vercel AI SDK Google provider. AI SDK telemetry is disabled for this request.
+The uploaded original is stored under `DATA_DIRECTORY/imports/` with private file permissions. If `DATA_DIRECTORY` is unset, imports use the directory containing `DATABASE_PATH` (the Railway volume mounted at `/data` in production). The PDF is not sent to Google when it is uploaded. The authenticated user must check the authorization box and choose **Autorizza e avvia estrazione**; that sends the complete PDF to Google Gemini for structured JSON Schema extraction through the Vercel AI SDK Google provider. AI SDK telemetry is disabled for this request. Daily backups and weekly exports include the source PDFs referenced by imports.
 
 The review displays the PDF and extracted seven-day, five-meal plan together. Check each meal, correct its food, exact quantity/unit text, state, alternatives, notes, page, and source citation; resolve or remove uncertain equivalences. Missing or ambiguous values stay explicit and produce warnings. The server validates the reviewed structure with Zod and requires page-level citations plus a per-meal review confirmation. A separate final confirmation and activation date create a new plan version; extraction alone never writes or activates plan data.
 
@@ -69,10 +69,10 @@ Sessions last 30 days. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` in
 
 The maintenance process starts with the service and uploads:
 
-- daily SQLite snapshots at 03:00 UTC;
-- weekly JSON exports on Sundays at 03:15 UTC.
+- daily SQLite snapshots at 03:00 UTC, including source PDFs referenced by imported plans;
+- weekly JSON exports on Sundays at 03:15 UTC, including the same source PDFs.
 
-Objects are compressed and encrypted with AES-256-GCM before upload. The JSON export includes application tables and excludes sessions, login rate limits, and scheduler state. The bucket is in EU West. Do not put PDFs or personal data in the repository.
+Objects are compressed and encrypted with AES-256-GCM before upload. The JSON export includes application tables and excludes sessions, login rate limits, and scheduler state. A backup or export fails if a referenced source PDF is missing instead of silently omitting it. The bucket is in EU West. Do not put PDFs or personal data in the repository.
 
 Run a backup or export manually when Railway variables are available locally:
 
@@ -85,15 +85,14 @@ railway run --project <PROJECT_ID> --environment production --service mealio -- 
 
 Restoring replaces the current database. Perform a restore during a maintenance window and retain the `BACKUP_ENCRYPTION_KEY` used for the backup.
 
-1. Download and verify the encrypted snapshot locally. The command runs `PRAGMA integrity_check` before writing the destination file:
+1. Download and verify the encrypted snapshot locally. The command runs `PRAGMA integrity_check` and extracts bundled source PDFs to the specified local directory:
 
    ```sh
    railway run --project <PROJECT_ID> --environment production --service mealio -- \
-     pnpm backup:restore -- backups/<YYYY>/<MM>/<DD>/<object>.sqlite.gz.enc /tmp/mealio-restore.sqlite
+     pnpm backup:restore -- backups/<YYYY>/<MM>/<DD>/<object>.sqlite.gz.enc /tmp/mealio-restore.sqlite /tmp/mealio-imports
    ```
 
-2. Stop the service, remove any stale SQLite sidecars from the volume, upload the restored file, then start one replica:
-
+2. Stop the service, remove any stale SQLite sidecars from the volume, upload the restored database and source PDFs, then start one replica:
    ```sh
    railway scale --project <PROJECT_ID> --environment production --service mealio europe-west4=0 --json
    railway volume files list / --project <PROJECT_ID> --environment production --service mealio --json
@@ -104,14 +103,18 @@ Restoring replaces the current database. Perform a restore during a maintenance 
      --project <PROJECT_ID> --environment production --service mealio --yes --json
    railway volume files upload /tmp/mealio-restore.sqlite /mealio.sqlite \
      --project <PROJECT_ID> --environment production --service mealio --overwrite --json
+   if [ -d /tmp/mealio-imports ]; then
+     railway volume files upload /tmp/mealio-imports /imports \
+       --project <PROJECT_ID> --environment production --service mealio --overwrite --json
+   fi
    railway scale --project <PROJECT_ID> --environment production --service mealio europe-west4=1 --json
    ```
 
-   Remove sidecars only while the service is stopped: the restored backup replaces the previous state completely.
+   Remove sidecars only while the service is stopped: the restored backup replaces the previous state completely. For older backups created before PDF recovery was added, no source directory is produced and imported records will show that their original PDF is unavailable.
 
 3. Verify `GET /api/health`, then log in. The start command applies any pending migrations automatically.
 
-`pnpm backup:restore` accepts objects only under the `backups/` prefix and does not overwrite the volume by itself. Keep a local copy of the downloaded file before restoring it to Railway.
+`pnpm backup:restore` accepts objects only under the `backups/` prefix and does not overwrite the volume by itself. Keep a local copy of the downloaded database and PDF directory until the restore is complete.
 
 ## Railway spend limits
 

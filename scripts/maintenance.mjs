@@ -1,7 +1,7 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import Database from 'better-sqlite3'
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { encryptBackupContent, decryptBackupContent } from './maintenance-crypto.mjs'
@@ -55,6 +55,41 @@ function uploadObject(client, key, content, format) {
   }))
 }
 
+const RECOVERY_IMPORT_TABLE = '__mealio_recovery_import_files'
+
+function importsDirectoryFor(databaseFilePath) {
+  const dataDirectory = process.env.DATA_DIRECTORY ?? dirname(resolve(databaseFilePath))
+  return join(resolve(dataDirectory), 'imports')
+}
+
+function readImportFiles(source, databaseFilePath) {
+  const records = source.prepare('SELECT file_key FROM plan_imports ORDER BY file_key').all()
+  return records.map(({ file_key }) => {
+    if (typeof file_key !== 'string' || basename(file_key) !== file_key || !file_key.endsWith('.pdf')) {
+      throw new Error('An imported PDF reference has an unsafe file key.')
+    }
+    try {
+      return { fileKey: file_key, content: readFileSync(join(importsDirectoryFor(databaseFilePath), file_key)) }
+    } catch {
+      throw new Error(`Cannot include referenced imported PDF in recovery artifact: ${file_key}`)
+    }
+  })
+}
+
+function embedImportFiles(snapshotPath, sourceDatabasePath) {
+  const snapshot = new Database(resolve(snapshotPath))
+  try {
+    const files = readImportFiles(snapshot, sourceDatabasePath)
+    snapshot.exec(`CREATE TABLE "${RECOVERY_IMPORT_TABLE}" (file_key TEXT PRIMARY KEY NOT NULL, content BLOB NOT NULL)`)
+    const insert = snapshot.prepare(`INSERT INTO "${RECOVERY_IMPORT_TABLE}" (file_key, content) VALUES (?, ?)`)
+    snapshot.transaction(() => {
+      for (const file of files) insert.run(file.fileKey, file.content)
+    })()
+  } finally {
+    snapshot.close()
+  }
+}
+
 export function createDatabaseSnapshot(sourcePath, targetPath) {
   const source = new Database(resolve(sourcePath))
   try {
@@ -65,6 +100,7 @@ export function createDatabaseSnapshot(sourcePath, targetPath) {
   } finally {
     source.close()
   }
+  embedImportFiles(targetPath, sourcePath)
 }
 
 export function createJsonExport(sourcePath = databasePath) {
@@ -80,7 +116,11 @@ export function createJsonExport(sourcePath = databasePath) {
       const identifier = `"${name.replaceAll('"', '""')}"`
       tables[name] = source.prepare(`SELECT * FROM ${identifier}`).all()
     }
-    return Buffer.from(JSON.stringify({ formatVersion: 1, exportedAt: new Date().toISOString(), tables }, null, 2))
+    const sourceFiles = readImportFiles(source, sourcePath).map(({ fileKey, content }) => ({
+      fileKey,
+      contentBase64: content.toString('base64'),
+    }))
+    return Buffer.from(JSON.stringify({ formatVersion: 2, exportedAt: new Date().toISOString(), tables, sourceFiles }, null, 2))
   } finally {
     source.close()
   }
@@ -95,7 +135,7 @@ export async function uploadDailyBackup() {
     createDatabaseSnapshot(databasePath, snapshotPath)
     const encrypted = encryptBackupContent(readFileSync(snapshotPath), encryptionKey())
     const key = objectKey('backups', 'sqlite')
-    await uploadObject(client, key, encrypted, 'sqlite-backup-v1')
+    await uploadObject(client, key, encrypted, 'sqlite-backup-v2')
     return key
   } finally {
     client.destroy()
@@ -108,13 +148,53 @@ export async function uploadWeeklyExport() {
   try {
     const encrypted = encryptBackupContent(createJsonExport(databasePath), encryptionKey())
     const key = objectKey('exports', 'json')
-    await uploadObject(client, key, encrypted, 'json-export-v1')
+    await uploadObject(client, key, encrypted, 'json-export-v2')
     return key
   } finally {
     client.destroy()
   }
 }
-export function restoreEncryptedBackup(encrypted, key, outputPath) {
+function restoreImportFiles(restored, importDirectory) {
+  const recoveryTable = restored
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(RECOVERY_IMPORT_TABLE)
+  if (!recoveryTable) return
+
+  const directory = resolve(importDirectory)
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  chmodSync(directory, 0o700)
+  const files = restored
+    .prepare(`SELECT file_key, content FROM "${RECOVERY_IMPORT_TABLE}" ORDER BY file_key`)
+    .all()
+  for (const { file_key, content } of files) {
+    if (
+      typeof file_key !== 'string' ||
+      basename(file_key) !== file_key ||
+      file_key.includes('/') ||
+      file_key.includes('\\') ||
+      !file_key.endsWith('.pdf') ||
+      !Buffer.isBuffer(content)
+    ) {
+      throw new Error('Backup contains an invalid imported PDF entry.')
+    }
+    const target = join(directory, file_key)
+    const temporary = join(directory, `.${file_key}.${randomBytes(8).toString('hex')}.tmp`)
+    try {
+      writeFileSync(temporary, content, { flag: 'wx', mode: 0o600 })
+      renameSync(temporary, target)
+    } catch (error) {
+      rmSync(temporary, { force: true })
+      throw error
+    }
+  }
+  restored.exec(`DROP TABLE "${RECOVERY_IMPORT_TABLE}"`)
+}
+export function restoreEncryptedBackup(
+  encrypted,
+  key,
+  outputPath,
+  importDirectory = join(dirname(resolve(outputPath)), 'imports'),
+) {
   const plaintext = decryptBackupContent(encrypted, key)
   const destination = resolve(outputPath)
   mkdirSync(dirname(destination), { recursive: true })
@@ -122,14 +202,16 @@ export function restoreEncryptedBackup(encrypted, key, outputPath) {
   writeFileSync(temporary, plaintext, { flag: 'wx', mode: 0o600 })
 
   try {
-    const restored = new Database(temporary, { readonly: true, fileMustExist: true })
-    let result
+    const restored = new Database(temporary, { fileMustExist: true })
     try {
+      let result = restored.prepare('PRAGMA integrity_check').get()
+      if (result.integrity_check !== 'ok') throw new Error('Restored SQLite database failed integrity_check.')
+      restoreImportFiles(restored, importDirectory)
       result = restored.prepare('PRAGMA integrity_check').get()
+      if (result.integrity_check !== 'ok') throw new Error('Restored SQLite database failed integrity_check.')
     } finally {
       restored.close()
     }
-    if (result.integrity_check !== 'ok') throw new Error('Restored SQLite database failed integrity_check.')
     renameSync(temporary, destination)
   } catch (error) {
     rmSync(temporary, { force: true })
@@ -138,7 +220,11 @@ export function restoreEncryptedBackup(encrypted, key, outputPath) {
   return destination
 }
 
-export async function downloadBackupToFile(key, outputPath) {
+export async function downloadBackupToFile(
+  key,
+  outputPath,
+  importDirectory = join(dirname(resolve(outputPath)), 'imports'),
+) {
   if (!key.startsWith('backups/') || key.includes('..')) {
     throw new Error('Restore accepts only backup objects under the backups/ prefix.')
   }
@@ -155,5 +241,5 @@ export async function downloadBackupToFile(key, outputPath) {
     client.destroy()
   }
 
-  return restoreEncryptedBackup(encrypted, encryptionKey(), outputPath)
+  return restoreEncryptedBackup(encrypted, encryptionKey(), outputPath, importDirectory)
 }
