@@ -76,6 +76,10 @@ function importRecord(id: string) {
   return record
 }
 
+function hasImportSource(record: { id: string; fileKey: string }): boolean {
+  return record.fileKey === `${record.id}.pdf` && existsSync(resolve(importsDirectory(), record.fileKey))
+}
+
 function cleanFileName(value: string): string {
   let decoded = value
   try {
@@ -224,8 +228,7 @@ export function listPlanImports() {
     .all()
   return records.map(({ fileKey, ...record }) => ({
     ...record,
-    sourceAvailable:
-      fileKey === `${record.id}.pdf` && existsSync(resolve(importsDirectory(), fileKey)),
+    sourceAvailable: hasImportSource({ id: record.id, fileKey }),
   }))
 }
 
@@ -246,8 +249,7 @@ export function getPlanImport(id: string) {
     status: record.status,
     createdAt: record.createdAt,
     authorizedAt: record.authorizedAt,
-    sourceAvailable:
-      record.fileKey === `${record.id}.pdf` && existsSync(resolve(importsDirectory(), record.fileKey)),
+    sourceAvailable: hasImportSource(record),
     extraction,
   }
 }
@@ -538,6 +540,9 @@ export function activatePlanImport(
   if (record.status !== 'extracted' || !record.extractionJson) {
     throw new PlanImportError('Estrai il PDF prima di confermare la revisione.', 409)
   }
+  if (!hasImportSource(record)) {
+    throw new PlanImportError('Il PDF originale non è disponibile. Ripristinalo prima di attivare il piano.', 409)
+  }
   let extractedReview: PlanReview
   try {
     extractedReview = PlanReviewSchema.parse(JSON.parse(record.extractionJson))
@@ -566,6 +571,9 @@ export function activatePlanImport(
     const current = importRecord(id)
     if (current.status !== 'extracted') {
       throw new PlanImportError('Questa importazione è già stata confermata.', 409)
+    }
+    if (!hasImportSource(current)) {
+      throw new PlanImportError('Il PDF originale non è disponibile. Ripristinalo prima di attivare il piano.', 409)
     }
     const version = db
       .insert(planVersions)

@@ -35,7 +35,7 @@ Expected flow:
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
 5. Show the PDF alongside the extraction, with page-level provenance, for review and manual correction.
-6. Activate a new version only after explicit confirmation and selection of a start date. Retain previous versions and show differences.
+6. Activate a new version only while the original PDF is available, after explicit confirmation and selection of a start date. Retain previous versions and show differences.
 
 Import must cover all seven days and five meals, preserving alternatives, notes, quantities, raw/cooked state, and equivalences with their scope and provenance. Automated extraction must never activate a plan directly.
 

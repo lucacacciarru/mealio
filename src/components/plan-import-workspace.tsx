@@ -530,7 +530,7 @@ export function PlanImportWorkspace() {
                 <p className="privacy-note" role="status">
                   {detail.status === 'uploaded'
                     ? 'Il PDF originale non è disponibile nello storage. Ricarica il documento per avviare l’estrazione.'
-                    : 'Il PDF originale non è disponibile nello storage. I dati e le citazioni salvate restano consultabili, ma non puoi confrontarli con il documento.'}
+                    : 'Il PDF originale non è disponibile nello storage. I dati e le citazioni salvate restano consultabili, ma il piano non può essere attivato finché non ripristini il documento.'}
                 </p>
               )}
             </section>
@@ -716,23 +716,31 @@ function ReviewPanel(props: ReviewPanelProps) {
         </button>
       </section>
 
-      <form className="activation-form import-step-card" onSubmit={onConfirm}>
-        <span className="step-number">5</span>
-        <h3>Conferma e attiva</h3>
-        <p>La conferma crea una nuova versione del piano; l’estrazione da sola non modifica né attiva dati.</p>
-        <label htmlFor="import-plan-label">Nome della versione</label>
-        <input id="import-plan-label" type="text" maxLength={160} value={planLabel} onChange={(event) => onPlanLabelChange(event.currentTarget.value)} disabled={busy} />
-        <label htmlFor="import-valid-from">Data di attivazione</label>
-        <input id="import-valid-from" type="date" required value={validFrom} onChange={(event) => onValidFromChange(event.currentTarget.value)} disabled={busy} />
-        <label className="consent-check">
-          <input type="checkbox" checked={finalConsent} onChange={(event) => onFinalConsentChange(event.currentTarget.checked)} disabled={busy || !allReviewed} />
-          <span>Confermo di aver verificato sul PDF tutti i pasti e le citazioni; attiva questa versione dalla data scelta.</span>
-        </label>
-        {!allReviewed && <p className="field-hint">Conferma ogni pasto e ogni equivalenza prima dell’attivazione.</p>}
-        <button className="primary-button" type="submit" disabled={busy || !allReviewed || !finalConsent || !validFrom}>
-          {busy ? 'Conferma in corso…' : 'Conferma revisione e attiva il piano'}
-        </button>
-      </form>
+      {detail.sourceAvailable ? (
+        <form className="activation-form import-step-card" onSubmit={onConfirm}>
+          <span className="step-number">5</span>
+          <h3>Conferma e attiva</h3>
+          <p>La conferma crea una nuova versione del piano; l’estrazione da sola non modifica né attiva dati.</p>
+          <label htmlFor="import-plan-label">Nome della versione</label>
+          <input id="import-plan-label" type="text" maxLength={160} value={planLabel} onChange={(event) => onPlanLabelChange(event.currentTarget.value)} disabled={busy} />
+          <label htmlFor="import-valid-from">Data di attivazione</label>
+          <input id="import-valid-from" type="date" required value={validFrom} onChange={(event) => onValidFromChange(event.currentTarget.value)} disabled={busy} />
+          <label className="consent-check">
+            <input type="checkbox" checked={finalConsent} onChange={(event) => onFinalConsentChange(event.currentTarget.checked)} disabled={busy || !allReviewed} />
+            <span>Confermo di aver verificato sul PDF tutti i pasti e le citazioni; attiva questa versione dalla data scelta.</span>
+          </label>
+          {!allReviewed && <p className="field-hint">Conferma ogni pasto e ogni equivalenza prima dell’attivazione.</p>}
+          <button className="primary-button" type="submit" disabled={busy || !allReviewed || !finalConsent || !validFrom}>
+            {busy ? 'Conferma in corso…' : 'Conferma revisione e attiva il piano'}
+          </button>
+        </form>
+      ) : (
+        <section className="import-step-card" role="status">
+          <span className="step-number">5</span>
+          <h3>Attivazione bloccata</h3>
+          <p>Ripristina il PDF originale per verificare pagine e citazioni. Il piano non può essere attivato finché la fonte non è disponibile.</p>
+        </section>
+      )}
     </div>
   )
 }
