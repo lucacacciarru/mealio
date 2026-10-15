@@ -19,6 +19,14 @@ pnpm dev
 
 The local UI is available at `http://localhost:3000`. `.env`, the SQLite database, and the `data/` directory are excluded from Git.
 
+## Import a meal plan PDF
+
+Set `GEMINI_API_KEY` in the local `.env` to enable extraction. `GEMINI_MODEL` defaults to `gemini-3.8-flash`. Keep the key out of source control and Railway config values; configure it as a private Railway variable in production. The import accepts PDF files up to 15 MB.
+
+The uploaded original is stored under `DATA_DIRECTORY/imports/` with private file permissions. If `DATA_DIRECTORY` is unset, imports use the directory containing `DATABASE_PATH` (the Railway volume mounted at `/data` in production). The PDF is not sent to Google when it is uploaded. The authenticated user must check the authorization box and choose **Autorizza e avvia estrazione**; that sends the complete PDF to Google Gemini for structured JSON Schema extraction through the Vercel AI SDK Google provider. AI SDK telemetry is disabled for this request.
+
+The review displays the PDF and extracted seven-day, five-meal plan together. Check each meal, correct its food, exact quantity/unit text, state, alternatives, notes, page, and source citation; resolve or remove uncertain equivalences. Missing or ambiguous values stay explicit and produce warnings. The server validates the reviewed structure with Zod and requires page-level citations plus a per-meal review confirmation. A separate final confirmation and activation date create a new plan version; extraction alone never writes or activates plan data.
+
 For schema changes, update `src/db/schema.ts`, generate the SQL migration, and apply it:
 
 ```sh
@@ -50,6 +58,7 @@ Set these values as Railway variables on the `mealio` service in `production`; d
 - `SESSION_SECRET`: at least 32 random bytes.
 - `ADMIN_PASSWORD_HASH`: output from `pnpm auth:hash`.
 - `BACKUP_ENCRYPTION_KEY`: 32 random bytes encoded as Base64. Keep a copy outside Railway, such as in a password manager; it is required to decrypt backups.
+- `GEMINI_API_KEY`: secret Gemini API key for explicitly authorized PDF extraction; set it as a private Railway variable. `GEMINI_MODEL` is optional and defaults to `gemini-3.8-flash`.
 - `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_REGION`: respectively the `endpoint`, `accessKeyId`, `secretAccessKey`, `bucketName`, and `region` returned by `railway bucket credentials --bucket mealio-backups --json`.
 
 The bucket is created in `ams`, but Railway assigns an effective S3 name distinct from the resource name; the S3 region may also differ from the creation region. Use the values returned by the credentials command. Sensitive variables remain `preserve()` values in the infrastructure-as-code file.

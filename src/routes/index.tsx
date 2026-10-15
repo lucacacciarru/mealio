@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { SyntheticEvent } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { PlanImportWorkspace } from '../components/plan-import-workspace'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
@@ -29,7 +30,7 @@ function HomePage() {
     }
   }
 
-  async function signIn(event: FormEvent<HTMLFormElement>) {
+  async function signIn(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setBusy(true)
@@ -90,14 +91,18 @@ function HomePage() {
           <p>Sto verificando la sessione.</p>
         </section>
       ) : view === 'signed-in' ? (
-        <section className="panel welcome-panel">
-          <span className="eyebrow">Area privata</span>
-          <h1>Benvenuto in Mealio.</h1>
-          <p>La base del tuo spazio personale è pronta.</p>
+        <section className="panel workspace-panel">
+          <div className="workspace-topline">
+            <div>
+              <span className="eyebrow">Area privata</span>
+              <h1>Il tuo piano, con le fonti sempre visibili.</h1>
+            </div>
+            <button className="secondary-button" type="button" onClick={signOut} disabled={busy}>
+              {busy ? 'Attendi…' : 'Esci'}
+            </button>
+          </div>
           {error && <p className="message error-message" role="alert">{error}</p>}
-          <button className="secondary-button" type="button" onClick={signOut} disabled={busy}>
-            {busy ? 'Attendi…' : 'Esci'}
-          </button>
+          <PlanImportWorkspace />
         </section>
       ) : (
         <section className="panel login-panel">

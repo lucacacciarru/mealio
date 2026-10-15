@@ -26,6 +26,8 @@ export default defineRailway(() => {
       BACKUP_ENCRYPTION_KEY: preserve(),
       SESSION_SECRET: preserve(),
       ADMIN_PASSWORD_HASH: preserve(),
+      GEMINI_API_KEY: preserve(),
+      GEMINI_MODEL: preserve(),
     },
     replicas: { 'europe-west4': 1 },
     volumeMounts: {

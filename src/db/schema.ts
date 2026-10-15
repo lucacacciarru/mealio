@@ -68,6 +68,22 @@ export const catalogFoodAliases = sqliteTable(
 // version for a date is the latest activated `valid_from` on or before it.
 // ---------------------------------------------------------------------------
 
+export const planImports = sqliteTable(
+  'plan_imports',
+  {
+    id: text('id').primaryKey(),
+    originalName: text('original_name').notNull(),
+    fileKey: text('file_key').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    status: text('status', { enum: ['uploaded', 'extracted', 'activated'] }).notNull(),
+    extractionJson: text('extraction_json'),
+    authorizedAt: integer('authorized_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [uniqueIndex('plan_imports_file_key_unique').on(table.fileKey)],
+)
+
 export const planVersions = sqliteTable(
   'plan_versions',
   {
@@ -76,6 +92,9 @@ export const planVersions = sqliteTable(
     validFrom: text('valid_from'),
     activatedAt: integer('activated_at'),
     createdAt: integer('created_at').notNull(),
+    sourceImportId: text('source_import_id').references(() => planImports.id, {
+      onDelete: 'set null',
+    }),
   },
   (table) => [
     uniqueIndex('plan_versions_valid_from_unique').on(table.validFrom),
@@ -108,6 +127,7 @@ export const planMeals = sqliteTable(
     slot: text('slot', { enum: PLAN_SLOTS }).notNull(),
     page: integer('page'),
     notes: text('notes'),
+    sourceQuote: text('source_quote'),
   },
   (table) => [
     uniqueIndex('plan_meals_day_slot_unique').on(table.dayId, table.slot),
@@ -115,7 +135,7 @@ export const planMeals = sqliteTable(
   ],
 )
 
-export const PLAN_COMPONENT_STATES = ['raw', 'cooked'] as const
+export const PLAN_COMPONENT_STATES = ['raw', 'cooked', 'unspecified'] as const
 export type PlanComponentState = (typeof PLAN_COMPONENT_STATES)[number]
 
 export const planComponents = sqliteTable(
@@ -133,23 +153,26 @@ export const planComponents = sqliteTable(
     // Effective, review-confirmed values.
     quantity: real('quantity'),
     unitId: integer('unit_id').references(() => catalogUnits.id),
-    // Values printed in the PDF, kept separate so confirmed corrections stay
-    // traceable (e.g. cod printed 200 g, confirmed 250 g).
+    quantityText: text('quantity_text'),
+    unitText: text('unit_text'),
+    // Values printed in the PDF, retained when a reviewer corrects the plan.
     printedQuantity: real('printed_quantity'),
     printedUnitId: integer('printed_unit_id').references(() => catalogUnits.id),
-    // Plan weights are raw unless the plan states otherwise.
+    printedQuantityText: text('printed_quantity_text'),
+    printedUnitText: text('printed_unit_text'),
     state: text('state', { enum: PLAN_COMPONENT_STATES }).notNull().default('raw'),
     // Components sharing a group within a meal are mutually exclusive
     // alternatives ("scelte"); null = not an alternative.
     alternativeGroup: text('alternative_group'),
     page: integer('page'),
+    sourceQuote: text('source_quote'),
     notes: text('notes'),
     confirmedAt: integer('confirmed_at'),
   },
   (table) => [
     index('plan_components_meal_id_idx').on(table.mealId),
     index('plan_components_food_id_idx').on(table.foodId),
-    check('plan_components_state_check', sql`state in ('raw', 'cooked')`),
+    check('plan_components_state_check', sql`state in ('raw', 'cooked', 'unspecified')`),
   ],
 )
 
@@ -169,6 +192,7 @@ export const planEquivalences = sqliteTable(
     scopeMealId: integer('scope_meal_id').references(() => planMeals.id, { onDelete: 'cascade' }),
     page: integer('page'),
     note: text('note'),
+    sourceQuote: text('source_quote'),
   },
   (table) => [
     index('plan_equivalences_version_id_idx').on(table.versionId),
@@ -188,6 +212,9 @@ export const planEquivalenceItems = sqliteTable(
     label: text('label').notNull(),
     foodId: integer('food_id').references(() => catalogFoods.id),
     quantity: real('quantity'),
+    quantityText: text('quantity_text'),
+    unitText: text('unit_text'),
+    sourceQuote: text('source_quote'),
     unitId: integer('unit_id').references(() => catalogUnits.id),
   },
   (table) => [index('plan_equivalence_items_equivalence_id_idx').on(table.equivalenceId)],

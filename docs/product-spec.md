@@ -31,7 +31,7 @@ The intended use is individual, from an iPhone and a computer. Use the iPhone fo
 Expected flow:
 
 1. Upload and privately retain the original PDF.
-2. Send the PDF to Claude for structured extraction; the user has authorized this use.
+2. Send the PDF to Google Gemini for structured extraction, only after the user authorizes it.
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
 5. Show the PDF alongside the extraction, with page-level provenance, for review and manual correction.
@@ -114,7 +114,7 @@ These are design choices to validate during implementation, not services that ar
 - **Web:** TanStack Start with React in SPA mode; server functions for application operations and server routes for uploads, push, and scheduler ticks.
 - **Runtime/deployment:** Node via Nitro on Railway, EU West region.
 - **Persistence:** SQLite with Drizzle on the web service's persistent volume.
-- **Import:** Anthropic/Claude SDK with structured output; Zod to validate the same data on the server and in forms/application code.
+- **Import:** Vercel AI SDK with its Google provider for structured output; Zod validates extracted data on the server and in forms/application code.
 - **PWA/offline:** manifest and dedicated service worker; cache persisted in IndexedDB and an offline change queue for grocery checkmarks and check-ins.
 - **Scheduler:** a Railway Function runs periodically and calls a protected endpoint on the web service. The web service decides sends using `Europe/Rome` and records a unique key to prevent duplicates.
 - **Push:** Web Push with VAPID keys; the private key remains only in service environment variables.
