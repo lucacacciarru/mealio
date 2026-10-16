@@ -73,8 +73,7 @@ const modelEquivalenceSchema = z
   })
   .strict()
 
-/** The base schema used for Gemini's structured output; server refinements follow below. */
-const planExtractionModelSchema = z
+export const PlanExtractionOutputSchema = z
   .object({
     days: z.array(modelDaySchema).length(7),
     equivalences: z.array(modelEquivalenceSchema).max(100),
@@ -82,25 +81,7 @@ const planExtractionModelSchema = z
   })
   .strict()
 
-/** Gemini accepts a JSON Schema subset; Zod still enforces omitted string bounds server-side. */
-export const planExtractionJsonSchema = z.toJSONSchema(planExtractionModelSchema)
-stripUnsupportedGeminiSchemaKeywords(planExtractionJsonSchema)
-
-function stripUnsupportedGeminiSchemaKeywords(value: unknown): void {
-  if (Array.isArray(value)) {
-    for (const child of value) stripUnsupportedGeminiSchemaKeywords(child)
-    return
-  }
-  if (value === null || typeof value !== 'object') return
-
-  const schema = value as Record<string, unknown>
-  delete schema.$schema
-  delete schema.minLength
-  delete schema.maxLength
-  for (const key in schema) stripUnsupportedGeminiSchemaKeywords(schema[key])
-}
-
-export const PlanExtractionSchema = planExtractionModelSchema.superRefine((extraction, context) => {
+export const PlanExtractionSchema = PlanExtractionOutputSchema.superRefine((extraction, context) => {
   const seenDays = new Set<number>()
   extraction.days.forEach((day, dayPosition) => {
     if (seenDays.has(day.dayIndex)) {

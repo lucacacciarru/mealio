@@ -10,7 +10,7 @@ Before changing product behavior, read the relevant sections of `docs/product-sp
 ## Preserve domain semantics
 
 - The professional's approved plan is authoritative. Mealio follows it; it does not create diets, foods, quantities, substitutions, or medical/nutrition advice.
-- Imported plans require explicit human review and an explicit activation date; extraction alone never activates a plan.
+- Imported plans are shown as a read-only summary and need an explicit activation with a start date; extraction alone never activates a plan.
 - Preserve provenance and ambiguity. Do not infer missing values, units, raw/cooked state, equivalence scope, or nutrition targets. The plan's gram weights refer to raw ingredients unless it explicitly says otherwise.
 - Keep versioned-plan and weekly-snapshot behavior intact. Do not retroactively change meals already planned or data already recorded.
 - Substitutions must come from the meal's alternatives or an explicitly scoped equivalence. Day swaps move all meals; meal moves swap the same slot rather than duplicating or deleting meals.

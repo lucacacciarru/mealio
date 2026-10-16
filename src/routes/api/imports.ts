@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { listCatalog, listUnits } from '../../server/catalog'
 import {
   activatePlanImport,
   extractPlanImport,
@@ -16,7 +15,6 @@ const responseHeaders = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
 }
-const MAX_REVIEW_BODY_BYTES = 5 * 1024 * 1024
 
 async function readBodyUpTo(request: Request, limit: number): Promise<Buffer> {
   const declaredLength = request.headers.get('content-length')
@@ -92,10 +90,7 @@ export const Route = createFileRoute('/api/imports')({
         }
         try {
           if (!id) return Response.json({ imports: listPlanImports() }, { headers: responseHeaders })
-          return Response.json(
-            { ...getPlanImport(id), catalog: listCatalog(), units: listUnits() },
-            { headers: responseHeaders },
-          )
+          return Response.json(getPlanImport(id), { headers: responseHeaders })
         } catch (error) {
           const status = error instanceof PlanImportError ? error.status : 500
           const message = error instanceof PlanImportError ? error.message : 'Impossibile leggere l’importazione.'
@@ -143,26 +138,16 @@ export const Route = createFileRoute('/api/imports')({
           return Response.json({ error: 'Richiesta non valida.' }, { status: 415, headers: responseHeaders })
         }
         try {
-          const body = await readBodyUpTo(request, MAX_REVIEW_BODY_BYTES)
+          const body = await readBodyUpTo(request, 4096)
           const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>
-          if (
-            payload.action !== 'activate' ||
-            typeof payload.id !== 'string' ||
-            typeof payload.validFrom !== 'string' ||
-            typeof payload.label !== 'string' ||
-            payload.confirmed !== true
-          ) {
-            return Response.json({ error: 'Conferma esplicita del piano richiesta.' }, { status: 400, headers: responseHeaders })
+          if (payload.action !== 'activate' || typeof payload.id !== 'string' || typeof payload.validFrom !== 'string') {
+            return Response.json({ error: 'Richiesta di attivazione non valida.' }, { status: 400, headers: responseHeaders })
           }
-          const result = activatePlanImport(payload.id, {
-            label: payload.label,
-            validFrom: payload.validFrom,
-            extraction: payload.extraction,
-          })
+          const result = activatePlanImport(payload.id, payload.validFrom)
           return Response.json(result, { headers: responseHeaders })
         } catch (error) {
           const status = error instanceof PlanImportError ? error.status : 400
-          const message = error instanceof PlanImportError ? error.message : 'Conferma del piano non riuscita.'
+          const message = error instanceof PlanImportError ? error.message : 'Attivazione del piano non riuscita.'
           return Response.json({ error: message }, { status, headers: responseHeaders })
         }
       },
