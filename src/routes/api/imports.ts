@@ -1,0 +1,156 @@
+import { createFileRoute } from '@tanstack/react-router'
+import {
+  activatePlanImport,
+  extractPlanImport,
+  getPlanImport,
+  listPlanImports,
+  MAX_PLAN_PDF_BYTES,
+  PlanImportError,
+  readPlanImportPdf,
+  savePlanImport,
+} from '../../server/plan-imports'
+import { hasValidSession } from '../../server/auth'
+
+const responseHeaders = {
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+}
+
+async function readBodyUpTo(request: Request, limit: number): Promise<Buffer> {
+  const declaredLength = request.headers.get('content-length')
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength)
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0) {
+      throw new PlanImportError('Dimensione della richiesta non valida.', 400)
+    }
+    if (parsedLength > limit) throw new PlanImportError('Richiesta troppo grande.', 413)
+  }
+
+  const reader = request.body?.getReader()
+  if (!reader) throw new PlanImportError('File o richiesta vuoti.', 400)
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > limit) {
+        await reader.cancel()
+        throw new PlanImportError('Richiesta troppo grande.', 413)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), totalBytes)
+}
+
+function requestHasSameOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin')
+  if (!origin) return true
+  try {
+    return new URL(origin).origin === new URL(request.url).origin
+  } catch {
+    return false
+  }
+}
+
+export const Route = createFileRoute('/api/imports')({
+  server: {
+    handlers: {
+      GET: async ({ request }) => {
+        if (!hasValidSession(request)) {
+          return Response.json({ error: 'Accesso richiesto.' }, { status: 401, headers: responseHeaders })
+        }
+        const url = new URL(request.url)
+        const id = url.searchParams.get('id')
+        if (url.searchParams.get('file') === '1') {
+          if (!id) {
+            return Response.json({ error: 'Importazione non trovata.' }, { status: 404, headers: responseHeaders })
+          }
+          try {
+            const { originalName, bytes } = await readPlanImportPdf(id)
+            return new Response(new Uint8Array(bytes), {
+              headers: {
+                ...responseHeaders,
+                'content-type': 'application/pdf',
+                'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(originalName)}`,
+                'content-length': String(bytes.length),
+                'referrer-policy': 'no-referrer',
+                'x-frame-options': 'SAMEORIGIN',
+              },
+            })
+          } catch (error) {
+            const status = error instanceof PlanImportError ? error.status : 500
+            const message = error instanceof PlanImportError ? error.message : 'File PDF non disponibile.'
+            return Response.json({ error: message }, { status, headers: responseHeaders })
+          }
+        }
+        try {
+          if (!id) return Response.json({ imports: listPlanImports() }, { headers: responseHeaders })
+          return Response.json(getPlanImport(id), { headers: responseHeaders })
+        } catch (error) {
+          const status = error instanceof PlanImportError ? error.status : 500
+          const message = error instanceof PlanImportError ? error.message : 'Impossibile leggere l’importazione.'
+          return Response.json({ error: message }, { status, headers: responseHeaders })
+        }
+      },
+      POST: async ({ request }) => {
+        if (!hasValidSession(request)) {
+          return Response.json({ error: 'Accesso richiesto.' }, { status: 401, headers: responseHeaders })
+        }
+        if (!requestHasSameOrigin(request)) {
+          return Response.json({ error: 'Richiesta non valida.' }, { status: 403, headers: responseHeaders })
+        }
+        const mediaType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+        try {
+          if (mediaType === 'application/pdf') {
+            const bytes = await readBodyUpTo(request, MAX_PLAN_PDF_BYTES)
+            const result = await savePlanImport(request.headers.get('x-file-name') ?? 'piano.pdf', bytes)
+            return Response.json(result, { status: 201, headers: responseHeaders })
+          }
+          if (mediaType !== 'application/json') {
+            return Response.json({ error: 'Invia un PDF oppure una richiesta JSON valida.' }, { status: 415, headers: responseHeaders })
+          }
+          const body = await readBodyUpTo(request, 4096)
+          const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>
+          if (payload.action !== 'extract' || typeof payload.id !== 'string') {
+            return Response.json({ error: 'Richiesta di estrazione non valida.' }, { status: 400, headers: responseHeaders })
+          }
+          const extraction = await extractPlanImport(payload.id, payload.confirmed === true)
+          return Response.json({ extraction }, { headers: responseHeaders })
+        } catch (error) {
+          const status = error instanceof PlanImportError ? error.status : 400
+          const message = error instanceof PlanImportError ? error.message : 'Richiesta non valida.'
+          return Response.json({ error: message }, { status, headers: responseHeaders })
+        }
+      },
+      PUT: async ({ request }) => {
+        if (!hasValidSession(request)) {
+          return Response.json({ error: 'Accesso richiesto.' }, { status: 401, headers: responseHeaders })
+        }
+        if (!requestHasSameOrigin(request)) {
+          return Response.json({ error: 'Richiesta non valida.' }, { status: 403, headers: responseHeaders })
+        }
+        if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+          return Response.json({ error: 'Richiesta non valida.' }, { status: 415, headers: responseHeaders })
+        }
+        try {
+          const body = await readBodyUpTo(request, 4096)
+          const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>
+          if (payload.action !== 'activate' || typeof payload.id !== 'string' || typeof payload.validFrom !== 'string') {
+            return Response.json({ error: 'Richiesta di attivazione non valida.' }, { status: 400, headers: responseHeaders })
+          }
+          const result = activatePlanImport(payload.id, payload.validFrom)
+          return Response.json(result, { headers: responseHeaders })
+        } catch (error) {
+          const status = error instanceof PlanImportError ? error.status : 400
+          const message = error instanceof PlanImportError ? error.message : 'Attivazione del piano non riuscita.'
+          return Response.json({ error: message }, { status, headers: responseHeaders })
+        }
+      },
+    },
+  },
+})

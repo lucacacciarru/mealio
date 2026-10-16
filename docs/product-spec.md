@@ -20,7 +20,7 @@ The intended use is individual, from an iPhone and a computer. Use the iPhone fo
 - Swapping two days moves all meals together. Moving a meal between days swaps it with the meal in the same slot; it must not duplicate or remove meals. Changes must not mix plan versions.
 - Past days are not replanned; they are recorded in the diary.
 - One free meal per week is allowed, chosen by the user. It may have a description, but no invented ingredients or macros, and it does not contribute to groceries. A planned free meal counts as followed for adherence.
-- Missing or ambiguous data remains explicit and requires review; it is not guessed.
+- Missing or ambiguous data remains explicit and is flagged as a warning; it is not guessed.
 - The interface is mobile-first. Groceries and check-ins must work offline and sync when connectivity returns.
 - Statistics describe recorded data; they do not make medical conclusions.
 
@@ -31,13 +31,15 @@ The intended use is individual, from an iPhone and a computer. Use the iPhone fo
 Expected flow:
 
 1. Upload and privately retain the original PDF.
-2. Send the PDF to Claude for structured extraction; the user has authorized this use.
+2. In the same explicit action (**Carica e analizza**, which states that the PDF goes to an AI model through OpenRouter), send the PDF through OpenRouter for structured extraction, routing inference only to zero-data-retention endpoints and selecting the native PDF parser. Require account-level Plugins settings not to enforce a non-native `file-parser` engine, because request-level ZDR does not apply to plugin backends. Retrying is another explicit action.
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
-5. Show the PDF alongside the extraction, with page-level provenance, for review and manual correction.
-6. Activate a new version only after explicit confirmation and selection of a start date. Retain previous versions and show differences.
+5. Show a read-only summary of the extraction: foods with printed quantities and units, raw/cooked/unspecified state, alternatives, notes, equivalences, and warnings. Unspecified cooking state is shown as unresolved with a warning. There is no per-meal review or manual correction; the original PDF stays available to open.
+6. Activate a new version with one explicit action and a start date, only while the original PDF is available. Equivalences with an unclear scope are shown but not applied. Retain previous versions and show differences.
 
 Import must cover all seven days and five meals, preserving alternatives, notes, quantities, raw/cooked state, and equivalences with their scope and provenance. Automated extraction must never activate a plan directly.
+
+The OpenRouter service account must not enforce a non-native PDF parser in its Plugins settings. If `Prevent overrides` is enabled for `file-parser`, its configured PDF engine must be `native`; request-level zero-data-retention routing does not apply to plugin backends.
 
 ### 2. Food catalog
 
@@ -105,7 +107,7 @@ Key invariants:
 2. Plan changes do not retroactively alter already planned meals or recorded data.
 3. Swaps and moves preserve meals; a move is always a swap within the same slot.
 4. Groceries are derived from the week's current plan; checkmarks, pantry, and manual items are separate state.
-5. Automated extraction never replaces human review.
+5. Automated extraction never activates a plan by itself; the user activates it explicitly after seeing the summary.
 
 ## Planned architecture
 
@@ -114,7 +116,7 @@ These are design choices to validate during implementation, not services that ar
 - **Web:** TanStack Start with React in SPA mode; server functions for application operations and server routes for uploads, push, and scheduler ticks.
 - **Runtime/deployment:** Node via Nitro on Railway, EU West region.
 - **Persistence:** SQLite with Drizzle on the web service's persistent volume.
-- **Import:** Anthropic/Claude SDK with structured output; Zod to validate the same data on the server and in forms/application code.
+- **Import:** Vercel AI SDK with the OpenRouter provider for JSON generation; the model is chosen in an OpenRouter preset, and requests enforce zero-data-retention routing and native PDF input. The OpenRouter account must not enforce a non-native PDF parser, because ZDR does not cover plugin backends. Zod validates extracted data on the server.
 - **PWA/offline:** manifest and dedicated service worker; cache persisted in IndexedDB and an offline change queue for grocery checkmarks and check-ins.
 - **Scheduler:** a Railway Function runs periodically and calls a protected endpoint on the web service. The web service decides sends using `Europe/Rome` and records a unique key to prevent duplicates.
 - **Push:** Web Push with VAPID keys; the private key remains only in service environment variables.
@@ -134,7 +136,7 @@ Prototype items to verify: SQLite driver compatibility with the chosen Node runt
 
 The board's development order is based on prerequisites and dependencies, not issue number:
 
-1. **Phase 1 — Foundations, plan, and import:** #3 repository/app setup; #1 catalog and versioned model; #11 PDF import with review.
+1. **Phase 1 — Foundations, plan, and import:** #3 repository/app setup; #1 catalog and versioned model; #11 PDF import with summary.
 2. **Phase 2 — Weekly use:** #9 planner; #12 Today and check-ins; #10 PWA/offline; #7 groceries and pantry.
 3. **Phase 3 — Data and statistics:** #5 BDA catalog and macros; #13 body measurements and workouts; #8 dashboard.
 4. **Phase 4 — Reminders:** #6 Web Push subscriptions and badge; #4 scheduler and first notification group; #2 remaining notifications.
@@ -142,7 +144,7 @@ The board's development order is based on prerequisites and dependencies, not is
 
 ### Phase completion criteria
 
-- **Phase 1:** import, review, and activate a plan without direct database changes; previous versions remain accessible.
+- **Phase 1:** import a plan, see its summary, and activate it without direct database changes; previous versions remain accessible.
 - **Phase 2:** plan a week, record meals, and complete both shopping rounds in the app, including offline grocery checkmarks.
 - **Phase 3:** macros and statistics are traceable to their sources; the body diary is available over time; the dashboard reports insufficient coverage.
 - **Phase 4:** push and scheduler run for two weeks without duplicate or missed sends and respect local time across daylight-saving changes.

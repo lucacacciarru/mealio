@@ -26,6 +26,7 @@ export default defineRailway(() => {
       BACKUP_ENCRYPTION_KEY: preserve(),
       SESSION_SECRET: preserve(),
       ADMIN_PASSWORD_HASH: preserve(),
+      OPENROUTER_API_KEY: preserve(),
     },
     replicas: { 'europe-west4': 1 },
     volumeMounts: {

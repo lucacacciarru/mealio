@@ -207,8 +207,7 @@ export function listPlanVersions(): PlanVersionHistoryEntry[] {
 }
 
 // ---------------------------------------------------------------------------
-// Plan builders (used by import/review, issue #11)
-// ---------------------------------------------------------------------------
+// Draft-only write helpers.
 
 export function ensureMeal(
   versionId: number,
@@ -425,12 +424,17 @@ export type PlanComponentView = {
   foodId: number | null
   foodCanonicalName: string | null
   quantity: number | null
+  quantityText: string | null
   unitSymbol: string | null
+  unitText: string | null
   printedQuantity: number | null
+  printedQuantityText: string | null
   printedUnitSymbol: string | null
+  printedUnitText: string | null
   state: PlanComponentState
   alternativeGroup: string | null
   page: number | null
+  sourceQuote: string | null
   notes: string | null
   confirmedAt: number | null
 }
@@ -439,6 +443,7 @@ export type PlanMealView = {
   id: number
   slot: PlanSlot
   page: number | null
+  sourceQuote: string | null
   notes: string | null
   components: PlanComponentView[]
 }
@@ -446,6 +451,7 @@ export type PlanMealView = {
 export type EquivalenceView = {
   id: number
   page: number | null
+  sourceQuote: string | null
   note: string | null
   scope:
     | { type: 'component'; dayIndex: number; dayName: string; slot: PlanSlot; label: string }
@@ -458,7 +464,10 @@ export type EquivalenceView = {
     foodId: number | null
     foodCanonicalName: string | null
     quantity: number | null
+    quantityText: string | null
     unitSymbol: string | null
+    unitText: string | null
+    sourceQuote: string | null
   }[]
 }
 
@@ -469,6 +478,7 @@ export type PlanView = {
     validFrom: string | null
     activatedAt: number | null
     createdAt: number
+    sourceImportId: string | null
   }
   days: { dayIndex: number; dayName: string; meals: PlanMealView[] }[]
   equivalences: EquivalenceView[]
@@ -508,14 +518,19 @@ export function getPlan(versionId: number): PlanView | null {
         foodId: component.foodId,
         foodCanonicalName: component.foodId ? foodNameById.get(component.foodId) ?? null : null,
         quantity: component.quantity,
+        quantityText: component.quantityText,
         unitSymbol: component.unitId ? unitSymbolById.get(component.unitId) ?? null : null,
+        unitText: component.unitText,
         printedQuantity: component.printedQuantity,
+        printedQuantityText: component.printedQuantityText,
         printedUnitSymbol: component.printedUnitId
           ? unitSymbolById.get(component.printedUnitId) ?? null
           : null,
+        printedUnitText: component.printedUnitText,
         state: component.state,
         alternativeGroup: component.alternativeGroup,
         page: component.page,
+        sourceQuote: component.sourceQuote,
         notes: component.notes,
         confirmedAt: component.confirmedAt,
       }))
@@ -523,6 +538,7 @@ export function getPlan(versionId: number): PlanView | null {
       id: meal.id,
       slot: meal.slot,
       page: meal.page,
+      sourceQuote: meal.sourceQuote,
       notes: meal.notes,
       components,
     }
@@ -538,6 +554,7 @@ export function getPlan(versionId: number): PlanView | null {
       validFrom: version.validFrom,
       activatedAt: version.activatedAt,
       createdAt: version.createdAt,
+      sourceImportId: version.sourceImportId,
     },
     days: days.map((day) => {
       const meals = mealsByDayId.get(day.id) ?? []
@@ -625,9 +642,19 @@ export function listEquivalences(versionId: number): EquivalenceView[] {
         foodId: item.foodId,
         foodCanonicalName: item.foodId ? foodNameById.get(item.foodId) ?? null : null,
         quantity: item.quantity,
+        quantityText: item.quantityText,
         unitSymbol: item.unitId ? unitSymbolById.get(item.unitId) ?? null : null,
+        unitText: item.unitText,
+        sourceQuote: item.sourceQuote,
       }))
-    return { id: equivalence.id, page: equivalence.page, note: equivalence.note, scope, items }
+    return {
+      id: equivalence.id,
+      page: equivalence.page,
+      sourceQuote: equivalence.sourceQuote,
+      note: equivalence.note,
+      scope,
+      items,
+    }
   })
 }
 
@@ -637,13 +664,18 @@ export function listEquivalences(versionId: number): EquivalenceView[] {
 
 export type ComponentSnapshot = {
   quantity: number | null
+  quantityText: string | null
   unitSymbol: string | null
+  unitText: string | null
   printedQuantity: number | null
+  printedQuantityText: string | null
   printedUnitSymbol: string | null
+  printedUnitText: string | null
   state: PlanComponentState
   foodCanonicalName: string | null
   alternativeGroup: string | null
   page: number | null
+  sourceQuote: string | null
   notes: string | null
 }
 
@@ -652,11 +684,15 @@ export type EquivalenceItemSnapshot = {
   foodId: number | null
   foodCanonicalName: string | null
   quantity: number | null
+  quantityText: string | null
   unitSymbol: string | null
+  unitText: string | null
+  sourceQuote: string | null
 }
 
 export type EquivalenceSnapshot = {
   page: number | null
+  sourceQuote: string | null
   note: string | null
   items: EquivalenceItemSnapshot[]
 }
@@ -696,13 +732,18 @@ export type PlanDiff = {
 function snapshotOf(component: PlanComponentView): ComponentSnapshot {
   return {
     quantity: component.quantity,
+    quantityText: component.quantityText,
     unitSymbol: component.unitSymbol,
+    unitText: component.unitText,
     printedQuantity: component.printedQuantity,
+    printedQuantityText: component.printedQuantityText,
     printedUnitSymbol: component.printedUnitSymbol,
+    printedUnitText: component.printedUnitText,
     state: component.state,
     foodCanonicalName: component.foodCanonicalName,
     alternativeGroup: component.alternativeGroup,
     page: component.page,
+    sourceQuote: component.sourceQuote,
     notes: component.notes,
   }
 }
@@ -716,15 +757,22 @@ function equivalenceScopeLabel(equivalence: EquivalenceView): string {
 }
 
 function equivalenceSnapshot(equivalence: EquivalenceView): EquivalenceSnapshot {
-  const items = equivalence.items
-    .map((item) => ({
-      label: item.label,
-      foodId: item.foodId,
-      foodCanonicalName: item.foodCanonicalName,
-      quantity: item.quantity,
-      unitSymbol: item.unitSymbol,
-    }))
-  return { page: equivalence.page, note: equivalence.note, items }
+  const items = equivalence.items.map((item) => ({
+    label: item.label,
+    foodId: item.foodId,
+    foodCanonicalName: item.foodCanonicalName,
+    quantity: item.quantity,
+    quantityText: item.quantityText,
+    unitSymbol: item.unitSymbol,
+    unitText: item.unitText,
+    sourceQuote: item.sourceQuote,
+  }))
+  return {
+    page: equivalence.page,
+    sourceQuote: equivalence.sourceQuote,
+    note: equivalence.note,
+    items,
+  }
 }
 
 export function diffPlanVersions(fromVersionId: number, toVersionId: number): PlanDiff {
