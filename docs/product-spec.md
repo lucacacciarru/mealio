@@ -31,7 +31,7 @@ The intended use is individual, from an iPhone and a computer. Use the iPhone fo
 Expected flow:
 
 1. Upload and privately retain the original PDF.
-2. In the same explicit action (**Carica e analizza**, which states that the PDF goes to an AI model through OpenRouter), send the PDF through OpenRouter for structured extraction, routed only to zero-data-retention endpoints with native PDF input. Retrying is another explicit action.
+2. In the same explicit action (**Carica e analizza**, which states that the PDF goes to an AI model through OpenRouter), send the PDF through OpenRouter for structured extraction, routing inference only to zero-data-retention endpoints and selecting the native PDF parser. Require account-level Plugins settings not to enforce a non-native `file-parser` engine, because request-level ZDR does not apply to plugin backends. Retrying is another explicit action.
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
 5. Show a read-only summary of the extraction: foods with printed quantities and units, raw/cooked state, alternatives, notes, equivalences, and warnings. There is no per-meal review or manual correction; the original PDF stays available to open.

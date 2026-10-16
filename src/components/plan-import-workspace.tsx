@@ -347,7 +347,7 @@ export function PlanImportWorkspace() {
               {busy === 'upload' ? 'Caricamento…' : 'Carica e analizza'}
             </button>
             <p className="privacy-note">
-              Il PDF resta salvato in privato e viene inviato all’AI tramite OpenRouter, solo a fornitori che non conservano i dati, per leggere il piano. Massimo 15 MB.
+              Il PDF resta salvato in privato e viene inviato a OpenRouter per l’analisi. La richiesta limita l’inferenza a endpoint ZDR e seleziona il parser PDF native. Verifica nelle impostazioni Plugins di OpenRouter che non sia imposto un parser non-native: ZDR non copre i backend dei plugin. Massimo 15 MB.
             </p>
           </form>
 
@@ -435,7 +435,16 @@ function mealWarnings(meal: Meal): string[] {
   return [
     ...new Set([
       ...meal.source.warnings,
-      ...meal.components.flatMap((component) => (component.removed ? [] : component.source?.warnings ?? [])),
+      ...meal.components.flatMap((component) =>
+        component.removed
+          ? []
+          : [
+              ...(component.source?.warnings ?? []),
+              ...(component.review.state === 'unspecified'
+                ? [`Stato crudo/cotto non specificato per ${component.review.label}.`]
+                : []),
+            ],
+      ),
     ]),
   ]
 }
@@ -497,12 +506,15 @@ function FoodText({ food }: { food: FoodFields }) {
       )}
       {food.state === 'raw' && <span className="summary-state"> a crudo</span>}
       {food.state === 'cooked' && <span className="summary-state"> a cotto</span>}
+      {food.state === 'unspecified' && (
+        <span className="summary-missing"> · stato crudo/cotto non specificato</span>
+      )}
       {food.notes && <span className="summary-note"> ({food.notes})</span>}
     </span>
   )
 }
 
-// Mirrors activation: an equivalence is applied only when its day, meal, and optional food resolve.
+// Mirrors activation: an equivalence is applied only when its day, meal, and component resolve.
 function equivalenceScope(equivalence: Equivalence, extraction: PlanReview): { label: string; resolved: boolean } {
   const { dayIndex, slot, componentIndex } = equivalence.review.scope
   if (dayIndex === null || slot === null) return { label: 'Ambito non chiaro', resolved: false }
@@ -511,7 +523,7 @@ function equivalenceScope(equivalence: Equivalence, extraction: PlanReview): { l
     .find((day) => day.dayIndex === dayIndex)
     ?.meals.find((candidate) => candidate.slot === slot)
   if (!meal) return { label: mealLabel, resolved: false }
-  if (componentIndex === null) return { label: mealLabel, resolved: true }
+  if (componentIndex === null) return { label: `${mealLabel} · componente non determinabile`, resolved: false }
   const component = meal.components[componentIndex]
   if (!component || component.removed) return { label: `${mealLabel} · alimento non trovato`, resolved: false }
   return { label: `${mealLabel} · ${component.review.label}`, resolved: true }
