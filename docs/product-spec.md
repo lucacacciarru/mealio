@@ -34,10 +34,12 @@ Expected flow:
 2. In the same explicit action (**Carica e analizza**, which states that the PDF goes to an AI model through OpenRouter), send the PDF through OpenRouter for structured extraction, routing inference only to zero-data-retention endpoints and selecting the native PDF parser. Require account-level Plugins settings not to enforce a non-native `file-parser` engine, because request-level ZDR does not apply to plugin backends. Retrying is another explicit action.
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
-5. Show a read-only summary of the extraction: foods with printed quantities and units, raw/cooked state, alternatives, notes, equivalences, and warnings. There is no per-meal review or manual correction; the original PDF stays available to open.
+5. Show a read-only summary of the extraction: foods with printed quantities and units, raw/cooked/unspecified state, alternatives, notes, equivalences, and warnings. Unspecified cooking state is shown as unresolved with a warning. There is no per-meal review or manual correction; the original PDF stays available to open.
 6. Activate a new version with one explicit action and a start date, only while the original PDF is available. Equivalences with an unclear scope are shown but not applied. Retain previous versions and show differences.
 
 Import must cover all seven days and five meals, preserving alternatives, notes, quantities, raw/cooked state, and equivalences with their scope and provenance. Automated extraction must never activate a plan directly.
+
+The OpenRouter service account must not enforce a non-native PDF parser in its Plugins settings. If `Prevent overrides` is enabled for `file-parser`, its configured PDF engine must be `native`; request-level zero-data-retention routing does not apply to plugin backends.
 
 ### 2. Food catalog
 
@@ -114,7 +116,7 @@ These are design choices to validate during implementation, not services that ar
 - **Web:** TanStack Start with React in SPA mode; server functions for application operations and server routes for uploads, push, and scheduler ticks.
 - **Runtime/deployment:** Node via Nitro on Railway, EU West region.
 - **Persistence:** SQLite with Drizzle on the web service's persistent volume.
-- **Import:** Vercel AI SDK with the OpenRouter provider for JSON generation; the model is chosen in an OpenRouter preset, and requests enforce zero-data-retention routing and native PDF input. Zod validates extracted data on the server.
+- **Import:** Vercel AI SDK with the OpenRouter provider for JSON generation; the model is chosen in an OpenRouter preset, and requests enforce zero-data-retention routing and native PDF input. The OpenRouter account must not enforce a non-native PDF parser, because ZDR does not cover plugin backends. Zod validates extracted data on the server.
 - **PWA/offline:** manifest and dedicated service worker; cache persisted in IndexedDB and an offline change queue for grocery checkmarks and check-ins.
 - **Scheduler:** a Railway Function runs periodically and calls a protected endpoint on the web service. The web service decides sends using `Europe/Rome` and records a unique key to prevent duplicates.
 - **Push:** Web Push with VAPID keys; the private key remains only in service environment variables.

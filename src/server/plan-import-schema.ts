@@ -56,15 +56,36 @@ const modelEquivalenceItemSchema = z
   })
   .strict()
 
+const modelEquivalenceScopeSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('meal'),
+      dayIndex: z.number().int().min(0).max(6),
+      slot: slotSchema,
+      componentIndex: z.null(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('component'),
+      dayIndex: z.number().int().min(0).max(6),
+      slot: slotSchema,
+      componentIndex: z.number().int().min(0).max(39),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('unresolved'),
+      dayIndex: z.number().int().min(0).max(6).nullable(),
+      slot: slotSchema.nullable(),
+      componentIndex: z.number().int().min(0).max(39).nullable(),
+    })
+    .strict(),
+])
+
 const modelEquivalenceSchema = z
   .object({
-    scope: z
-      .object({
-        dayIndex: z.number().int().min(0).max(6).nullable(),
-        slot: slotSchema.nullable(),
-        componentIndex: z.number().int().min(0).max(39).nullable(),
-      })
-      .strict(),
+    scope: modelEquivalenceScopeSchema,
     page: pageSchema,
     quote: nullableText(1200),
     note: nullableText(1000),

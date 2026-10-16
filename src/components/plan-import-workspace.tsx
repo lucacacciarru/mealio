@@ -347,7 +347,7 @@ export function PlanImportWorkspace() {
               {busy === 'upload' ? 'Caricamento…' : 'Carica e analizza'}
             </button>
             <p className="privacy-note">
-              Il PDF resta salvato in privato e viene inviato a OpenRouter per l’analisi. La richiesta limita l’inferenza a endpoint ZDR e seleziona il parser PDF native. Verifica nelle impostazioni Plugins di OpenRouter che non sia imposto un parser non-native: ZDR non copre i backend dei plugin. Massimo 15 MB.
+              Il PDF resta salvato in privato e viene inviato a OpenRouter per l’analisi. La richiesta limita l’inferenza a endpoint ZDR e seleziona il parser PDF nativo. Le impostazioni Plugin devono lasciare `file-parser` non forzato o impostarlo sul parser nativo; ZDR non copre i backend dei plugin. Massimo 15 MB.
             </p>
           </form>
 
@@ -441,7 +441,7 @@ function mealWarnings(meal: Meal): string[] {
           : [
               ...(component.source?.warnings ?? []),
               ...(component.review.state === 'unspecified'
-                ? [`Stato crudo/cotto non specificato per ${component.review.label}.`]
+                ? [`Stato crudo o cotto non specificato per ${component.review.label}.`]
                 : []),
             ],
       ),
@@ -514,16 +514,18 @@ function FoodText({ food }: { food: FoodFields }) {
   )
 }
 
-// Mirrors activation: an equivalence is applied only when its day, meal, and component resolve.
+// Mirrors activation: unresolved scopes stay visible; only explicit meal/component scopes apply.
 function equivalenceScope(equivalence: Equivalence, extraction: PlanReview): { label: string; resolved: boolean } {
-  const { dayIndex, slot, componentIndex } = equivalence.review.scope
+  const { kind, dayIndex, slot, componentIndex } = equivalence.review.scope
   if (dayIndex === null || slot === null) return { label: 'Ambito non chiaro', resolved: false }
   const mealLabel = `${DAY_LABELS[dayIndex]} · ${SLOT_LABELS[slot]}`
+  if (kind === 'unresolved') return { label: `${mealLabel} · ambito non chiaro`, resolved: false }
   const meal = extraction.days
     .find((day) => day.dayIndex === dayIndex)
     ?.meals.find((candidate) => candidate.slot === slot)
   if (!meal) return { label: mealLabel, resolved: false }
-  if (componentIndex === null) return { label: `${mealLabel} · componente non determinabile`, resolved: false }
+  if (kind === 'meal') return { label: `${mealLabel} · pasto intero`, resolved: true }
+  if (componentIndex === null) return { label: `${mealLabel} · alimento non determinato`, resolved: false }
   const component = meal.components[componentIndex]
   if (!component || component.removed) return { label: `${mealLabel} · alimento non trovato`, resolved: false }
   return { label: `${mealLabel} · ${component.review.label}`, resolved: true }
