@@ -439,7 +439,10 @@ h1 {
 .import-history-item:focus-visible,
 .secondary-button:focus-visible,
 .primary-button:focus-visible,
-.summary-day > summary:focus-visible {
+.summary-day > summary:focus-visible,
+.week-day > details > summary:focus-visible,
+.week-edit > summary:focus-visible,
+.week-combinations > summary:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 3px;
 }
@@ -522,6 +525,24 @@ h1 {
   margin: 4px 0 0;
 }
 
+.summary-combinations {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.summary-combinations > li > strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summary-combinations .summary-foods {
+  margin-top: 2px;
+}
+
 .summary-amount {
   font-weight: 650;
 }
@@ -572,6 +593,298 @@ h1 {
 
 .loading-inline {
   padding: 20px 0;
+}
+
+.week-planner {
+  margin-top: 30px;
+  padding-top: 27px;
+  border-top: 1px solid var(--line);
+}
+
+.week-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.week-nav .secondary-button {
+  min-height: 40px;
+  margin-top: 0;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.week-body {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.week-status,
+.week-free-panel {
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.week-status h3,
+.week-free-panel h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  letter-spacing: -.02em;
+}
+
+.week-status > p,
+.week-free-panel > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.week-status-pending {
+  border-color: #e6d6a6;
+  background: #fdf9ee;
+}
+
+.week-status-confirmed {
+  border-color: #c7d8c6;
+  background: #f6faf4;
+}
+
+.week-status .primary-button {
+  width: min(100%, 320px);
+  margin-top: 14px;
+}
+
+.week-refresh {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.week-refresh .secondary-button {
+  margin-top: 0;
+}
+
+.week-warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid #be9a45;
+  border-radius: 5px;
+  background: #fbf6e7;
+  color: #62502a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.week-days,
+.week-meals {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week-day {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.week-day > details > summary {
+  padding: 13px 14px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.week-day > details > summary .week-tag {
+  margin-left: 8px;
+  vertical-align: 2px;
+}
+
+.week-day-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.week-day-version,
+.week-meal-page {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.week-tag {
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: #f2eee3;
+  color: #66563b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.week-tag-today {
+  background: var(--sage);
+  color: var(--green-dark);
+}
+
+.week-tag-free {
+  background: #f7edcf;
+  color: #765f24;
+}
+
+.week-meal {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.week-meal-free {
+  border-color: #e6d6a6;
+  background: #fffaf0;
+}
+
+.week-meal-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.week-meal-heading h4 {
+  margin: 0;
+  color: var(--green-dark);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.week-meal .summary-foods {
+  padding-left: 16px;
+  font-size: 13px;
+}
+
+.week-free-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.week-combination-choice {
+  margin: 0 0 4px;
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.week-combinations {
+  margin-top: 6px;
+}
+
+.week-combinations > summary {
+  color: var(--green-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.week-combinations > ol {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.week-edit {
+  margin-top: 8px;
+}
+
+.week-edit > summary {
+  color: var(--green-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.week-form {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.week-form label {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.week-form select,
+.week-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.week-form select:focus,
+.week-form input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(56, 107, 75, .12);
+}
+
+.week-form .primary-button,
+.week-form .secondary-button {
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.week-form > .secondary-button {
+  justify-self: start;
+}
+
+.week-free-panel .week-form,
+.week-day-body > .week-edit .week-form {
+  max-width: 420px;
+}
+
+.week-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (min-width: 700px) {
+  .week-meals {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .week-status,
+  .week-free-panel {
+    padding: 15px;
+  }
 }
 
 @media (max-width: 850px) {

@@ -164,6 +164,10 @@ export const planComponents = sqliteTable(
     // Components sharing a group within a meal are mutually exclusive
     // alternatives ("scelte"); null = not an alternative.
     alternativeGroup: text('alternative_group'),
+    // Components sharing a combination are eaten together as one of the meal's
+    // alternative sets of foods ("OPPURE", "a scelta tra"); null = part of
+    // every set, or the meal offers a single one.
+    combination: text('combination'),
     page: integer('page'),
     sourceQuote: text('source_quote'),
     notes: text('notes'),
@@ -218,4 +222,56 @@ export const planEquivalenceItems = sqliteTable(
     unitId: integer('unit_id').references(() => catalogUnits.id),
   },
   (table) => [index('plan_equivalence_items_equivalence_id_idx').on(table.equivalenceId)],
+)
+
+// ---------------------------------------------------------------------------
+// Weekly planning. A row exists only for a confirmed ISO week; an unconfirmed
+// week is derived from the plan valid for each date. Each week meal stores a
+// snapshot of the plan meal it carries, so later plan versions and edits to
+// other days never rewrite it. Swaps move snapshots, choices, and the free
+// meal between dates of the same plan version.
+// ---------------------------------------------------------------------------
+
+export const weeks = sqliteTable(
+  'weeks',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // Monday of the ISO week, YYYY-MM-DD.
+    weekStart: text('week_start').notNull(),
+    confirmedAt: integer('confirmed_at').notNull(),
+    // At most one free meal per week: it replaces the planned meal at this
+    // date and slot and carries no ingredients.
+    freeMealDate: text('free_meal_date'),
+    freeMealSlot: text('free_meal_slot', { enum: PLAN_SLOTS }),
+    freeMealDescription: text('free_meal_description'),
+  },
+  (table) => [
+    uniqueIndex('weeks_week_start_unique').on(table.weekStart),
+    check(
+      'weeks_free_meal_check',
+      sql`(free_meal_date is null) = (free_meal_slot is null) and (free_meal_description is null or free_meal_date is not null)`,
+    ),
+  ],
+)
+
+export const weekMeals = sqliteTable(
+  'week_meals',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    weekId: integer('week_id')
+      .notNull()
+      .references(() => weeks.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    slot: text('slot', { enum: PLAN_SLOTS }).notNull(),
+    // Plan version and plan day the meal comes from; after a swap the plan
+    // day differs from the weekday of `date`.
+    sourceVersionId: integer('source_version_id')
+      .notNull()
+      .references(() => planVersions.id),
+    sourceDayIndex: integer('source_day_index').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    // Substitutions chosen among the snapshot's alternatives and equivalences.
+    choicesJson: text('choices_json').notNull(),
+  },
+  (table) => [uniqueIndex('week_meals_week_date_slot_unique').on(table.weekId, table.date, table.slot)],
 )

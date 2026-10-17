@@ -5,56 +5,15 @@ import {
   getPlanImport,
   listPlanImports,
   MAX_PLAN_PDF_BYTES,
-  PlanImportError,
   readPlanImportPdf,
   savePlanImport,
 } from '../../server/plan-imports'
 import { hasValidSession } from '../../server/auth'
+import { HttpError, readBodyUpTo, requestHasSameOrigin } from '../../server/http'
 
 const responseHeaders = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
-}
-
-async function readBodyUpTo(request: Request, limit: number): Promise<Buffer> {
-  const declaredLength = request.headers.get('content-length')
-  if (declaredLength !== null) {
-    const parsedLength = Number(declaredLength)
-    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0) {
-      throw new PlanImportError('Dimensione della richiesta non valida.', 400)
-    }
-    if (parsedLength > limit) throw new PlanImportError('Richiesta troppo grande.', 413)
-  }
-
-  const reader = request.body?.getReader()
-  if (!reader) throw new PlanImportError('File o richiesta vuoti.', 400)
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      totalBytes += value.byteLength
-      if (totalBytes > limit) {
-        await reader.cancel()
-        throw new PlanImportError('Richiesta troppo grande.', 413)
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), totalBytes)
-}
-
-function requestHasSameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin')
-  if (!origin) return true
-  try {
-    return new URL(origin).origin === new URL(request.url).origin
-  } catch {
-    return false
-  }
 }
 
 export const Route = createFileRoute('/api/imports')({
@@ -83,8 +42,8 @@ export const Route = createFileRoute('/api/imports')({
               },
             })
           } catch (error) {
-            const status = error instanceof PlanImportError ? error.status : 500
-            const message = error instanceof PlanImportError ? error.message : 'File PDF non disponibile.'
+            const status = error instanceof HttpError ? error.status : 500
+            const message = error instanceof HttpError ? error.message : 'File PDF non disponibile.'
             return Response.json({ error: message }, { status, headers: responseHeaders })
           }
         }
@@ -92,8 +51,8 @@ export const Route = createFileRoute('/api/imports')({
           if (!id) return Response.json({ imports: listPlanImports() }, { headers: responseHeaders })
           return Response.json(getPlanImport(id), { headers: responseHeaders })
         } catch (error) {
-          const status = error instanceof PlanImportError ? error.status : 500
-          const message = error instanceof PlanImportError ? error.message : 'Impossibile leggere l’importazione.'
+          const status = error instanceof HttpError ? error.status : 500
+          const message = error instanceof HttpError ? error.message : 'Impossibile leggere l’importazione.'
           return Response.json({ error: message }, { status, headers: responseHeaders })
         }
       },
@@ -122,8 +81,8 @@ export const Route = createFileRoute('/api/imports')({
           const extraction = await extractPlanImport(payload.id, payload.confirmed === true)
           return Response.json({ extraction }, { headers: responseHeaders })
         } catch (error) {
-          const status = error instanceof PlanImportError ? error.status : 400
-          const message = error instanceof PlanImportError ? error.message : 'Richiesta non valida.'
+          const status = error instanceof HttpError ? error.status : 400
+          const message = error instanceof HttpError ? error.message : 'Richiesta non valida.'
           return Response.json({ error: message }, { status, headers: responseHeaders })
         }
       },
@@ -146,8 +105,8 @@ export const Route = createFileRoute('/api/imports')({
           const result = activatePlanImport(payload.id, payload.validFrom)
           return Response.json(result, { headers: responseHeaders })
         } catch (error) {
-          const status = error instanceof PlanImportError ? error.status : 400
-          const message = error instanceof PlanImportError ? error.message : 'Attivazione del piano non riuscita.'
+          const status = error instanceof HttpError ? error.status : 400
+          const message = error instanceof HttpError ? error.message : 'Attivazione del piano non riuscita.'
           return Response.json({ error: message }, { status, headers: responseHeaders })
         }
       },

@@ -12,6 +12,9 @@ const slotSchema = z.enum(PLAN_IMPORT_SLOTS)
 const pageSchema = z.number().int().min(1).max(1000).nullable()
 const nullableText = (max: number) => z.string().max(max).nullable()
 const warningsSchema = z.array(z.string().min(1).max(400)).max(20)
+// A meal offering several combinations to choose from (for example a breakfast with seven
+// options) lists every food of every combination.
+const MAX_MEAL_COMPONENTS = 100
 
 const modelComponentSchema = z
   .object({
@@ -20,6 +23,7 @@ const modelComponentSchema = z
     unitText: nullableText(80),
     state: z.enum(['raw', 'cooked', 'unspecified']),
     alternativeGroup: nullableText(100),
+    combination: nullableText(100),
     page: pageSchema,
     quote: nullableText(1200),
     notes: nullableText(1000),
@@ -34,14 +38,16 @@ const modelMealSchema = z
     quote: nullableText(1200),
     notes: nullableText(2000),
     warnings: warningsSchema,
-    components: z.array(modelComponentSchema).max(40),
+    components: z.array(modelComponentSchema).max(MAX_MEAL_COMPONENTS),
   })
   .strict()
 
+// Only the meals the PDF gives for that day; slots it gives once for every day are in
+// everyDayMeals and are copied into each day by the server.
 const modelDaySchema = z
   .object({
     dayIndex: z.number().int().min(0).max(6),
-    meals: z.array(modelMealSchema).length(5),
+    meals: z.array(modelMealSchema).max(5),
   })
   .strict()
 
@@ -56,11 +62,15 @@ const modelEquivalenceItemSchema = z
   })
   .strict()
 
-const modelEquivalenceScopeSchema = z.discriminatedUnion('kind', [
+// A plain union, not z.discriminatedUnion: Zod emits `oneOf` for the latter, which OpenAI
+// strict structured outputs reject; `anyOf` is accepted by OpenAI and Gemini alike. The `kind`
+// literals still make exactly one branch match. A meal or component scope with a null dayIndex
+// points at the meal of that slot in everyDayMeals.
+const modelEquivalenceScopeSchema = z.union([
   z
     .object({
       kind: z.literal('meal'),
-      dayIndex: z.number().int().min(0).max(6),
+      dayIndex: z.number().int().min(0).max(6).nullable(),
       slot: slotSchema,
       componentIndex: z.null(),
     })
@@ -68,9 +78,9 @@ const modelEquivalenceScopeSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('component'),
-      dayIndex: z.number().int().min(0).max(6),
+      dayIndex: z.number().int().min(0).max(6).nullable(),
       slot: slotSchema,
-      componentIndex: z.number().int().min(0).max(39),
+      componentIndex: z.number().int().min(0).max(MAX_MEAL_COMPONENTS - 1),
     })
     .strict(),
   z
@@ -78,7 +88,7 @@ const modelEquivalenceScopeSchema = z.discriminatedUnion('kind', [
       kind: z.literal('unresolved'),
       dayIndex: z.number().int().min(0).max(6).nullable(),
       slot: slotSchema.nullable(),
-      componentIndex: z.number().int().min(0).max(39).nullable(),
+      componentIndex: z.number().int().min(0).max(MAX_MEAL_COMPONENTS - 1).nullable(),
     })
     .strict(),
 ])
@@ -96,6 +106,7 @@ const modelEquivalenceSchema = z
 
 export const PlanExtractionOutputSchema = z
   .object({
+    everyDayMeals: z.array(modelMealSchema).max(5),
     days: z.array(modelDaySchema).length(7),
     equivalences: z.array(modelEquivalenceSchema).max(100),
     warnings: warningsSchema,
@@ -103,6 +114,17 @@ export const PlanExtractionOutputSchema = z
   .strict()
 
 export const PlanExtractionSchema = PlanExtractionOutputSchema.superRefine((extraction, context) => {
+  const seenEveryDaySlots = new Set<string>()
+  extraction.everyDayMeals.forEach((meal, mealPosition) => {
+    if (seenEveryDaySlots.has(meal.slot)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['everyDayMeals', mealPosition, 'slot'],
+        message: 'Pasto comune duplicato.',
+      })
+    }
+    seenEveryDaySlots.add(meal.slot)
+  })
   const seenDays = new Set<number>()
   extraction.days.forEach((day, dayPosition) => {
     if (seenDays.has(day.dayIndex)) {
@@ -128,15 +150,6 @@ export const PlanExtractionSchema = PlanExtractionOutputSchema.superRefine((extr
   if (seenDays.size !== 7) {
     context.addIssue({ code: 'custom', path: ['days'], message: 'Servono tutti i sette giorni.' })
   }
-  extraction.days.forEach((day, dayPosition) => {
-    if (new Set(day.meals.map((meal) => meal.slot)).size !== 5) {
-      context.addIssue({
-        code: 'custom',
-        path: ['days', dayPosition, 'meals'],
-        message: 'Servono cinque pasti distinti per giorno.',
-      })
-    }
-  })
 })
 
 const reviewedComponentFields = z
@@ -146,6 +159,7 @@ const reviewedComponentFields = z
     unitText: nullableText(80),
     state: z.enum(['raw', 'cooked', 'unspecified']),
     alternativeGroup: nullableText(100),
+    combination: nullableText(100),
     page: pageSchema,
     quote: nullableText(1200),
     notes: nullableText(1000),
@@ -182,7 +196,7 @@ const reviewedMealSchema = z
       })
       .strict(),
     reviewed: z.boolean(),
-    components: z.array(reviewedComponentSchema).max(40),
+    components: z.array(reviewedComponentSchema).max(MAX_MEAL_COMPONENTS),
   })
   .strict()
 

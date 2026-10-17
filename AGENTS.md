@@ -13,7 +13,7 @@ Mealio is a private, single-user meal-planning application. The product specific
 - Node.js `>=22.12`; pnpm `11.21.0`.
 - TanStack Start in SPA mode, React 19, Vite, Nitro's Node server, SQLite, and Drizzle.
 - `src/routes/` contains file-based UI and API routes; `src/server/` contains server-side auth; `src/db/` contains the SQLite connection and Drizzle schema; `drizzle/` contains migrations; `scripts/` contains runtime and maintenance commands.
-- `pnpm dev` starts the local app at `http://localhost:3000`; follow `docs/development.md` for local environment setup.
+- `pnpm dev` starts the local app at `http://localhost:5009`; follow `docs/development.md` for local environment setup.
 - `pnpm build` runs the Vite production build and `tsc --noEmit`.
 - Schema changes: update `src/db/schema.ts`, run `pnpm db:generate`, review the generated SQL and snapshot, then apply with `pnpm db:migrate` to a disposable/local database. Never test migrations against production or a database containing irreplaceable data.
 - `package.json` currently defines no test or lint script. Do not invent `pnpm test`/`pnpm lint` checks or claim the build proves runtime behavior. For behavior changes, run the relevant app flow or a focused disposable smoke scenario; state any environment-dependent limitation precisely.

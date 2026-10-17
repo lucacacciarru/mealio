@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiImportsRouteImport } from './routes/api/imports'
+import { Route as ApiWeeksRouteImport } from './routes/api/weeks'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
@@ -29,6 +30,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const ApiImportsRoute = ApiImportsRouteImport.update({
   id: '/api/imports',
   path: '/api/imports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWeeksRoute = ApiWeeksRouteImport.update({
+  id: '/api/weeks',
+  path: '/api/weeks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
+  '/api/weeks': typeof ApiWeeksRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
+  '/api/weeks': typeof ApiWeeksRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
+  '/api/weeks': typeof ApiWeeksRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/api/health'
     | '/api/imports'
+    | '/api/weeks'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/api/health'
     | '/api/imports'
+    | '/api/weeks'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/api/health'
     | '/api/imports'
+    | '/api/weeks'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/session'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiImportsRoute: typeof ApiImportsRoute
+  ApiWeeksRoute: typeof ApiWeeksRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
@@ -129,6 +142,13 @@ declare module '@tanstack/react-router' {
       path: '/api/imports'
       fullPath: '/api/imports'
       preLoaderRoute: typeof ApiImportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/weeks': {
+      id: '/api/weeks'
+      path: '/api/weeks'
+      fullPath: '/api/weeks'
+      preLoaderRoute: typeof ApiWeeksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/login': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiImportsRoute: ApiImportsRoute,
+  ApiWeeksRoute: ApiWeeksRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,
