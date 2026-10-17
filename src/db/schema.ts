@@ -275,3 +275,43 @@ export const weekMeals = sqliteTable(
   },
   (table) => [uniqueIndex('week_meals_week_date_slot_unique').on(table.weekId, table.date, table.slot)],
 )
+
+// Diary snapshots are independent of mutable planner rows. A check-in keeps
+// the first snapshot it referenced, including substitutions and the free meal.
+export const diaryPlanSnapshots = sqliteTable(
+  'diary_plan_snapshots',
+  {
+    id: text('id').primaryKey(),
+    date: text('date').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+  },
+  (table) => [index('diary_plan_snapshots_date_idx').on(table.date)],
+)
+
+export const mealCheckIns = sqliteTable(
+  'meal_check_ins',
+  {
+    date: text('date').notNull(),
+    slot: text('slot', { enum: PLAN_SLOTS }).notNull(),
+    snapshotId: text('snapshot_id')
+      .notNull()
+      .references(() => diaryPlanSnapshots.id),
+    followed: integer('followed', { mode: 'boolean' }).notNull(),
+    note: text('note'),
+    recordedAt: integer('recorded_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    revision: integer('revision').notNull(),
+  },
+  (table) => [
+    uniqueIndex('meal_check_ins_date_slot_unique').on(table.date, table.slot),
+    check('meal_check_ins_followed_check', sql`followed in (0, 1)`),
+    check('meal_check_ins_revision_check', sql`revision > 0`),
+  ],
+)
+
+// Receipts survive later edits: retrying a request whose response was lost
+// must never replay it over a newer check-in.
+export const checkInOperations = sqliteTable('check_in_operations', {
+  id: text('id').primaryKey(),
+  requestHash: text('request_hash').notNull(),
+})

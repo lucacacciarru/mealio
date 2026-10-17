@@ -90,9 +90,9 @@ export async function loginWithPassword(password: string, address: string): Prom
   return { status: 200, token }
 }
 
-export function hasValidSession(request: Request): boolean {
+export function sessionExpiresAt(request: Request): number | null {
   const secret = getSessionSecret()
-  if (!secret) return false
+  if (!secret) return null
 
   const cookieHeader = request.headers.get('cookie') ?? ''
   const token = cookieHeader
@@ -100,7 +100,7 @@ export function hasValidSession(request: Request): boolean {
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
     ?.slice(SESSION_COOKIE.length + 1)
-  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return false
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null
 
   const row = db
     .select({ expiresAt: sessions.expiresAt })
@@ -109,9 +109,13 @@ export function hasValidSession(request: Request): boolean {
     .get()
   if (!row || row.expiresAt <= Date.now()) {
     if (row) db.delete(sessions).where(eq(sessions.tokenHash, tokenHash(token))).run()
-    return false
+    return null
   }
-  return true
+  return row.expiresAt
+}
+
+export function hasValidSession(request: Request): boolean {
+  return sessionExpiresAt(request) !== null
 }
 
 export function revokeSession(request: Request): void {

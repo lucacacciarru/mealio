@@ -43,15 +43,20 @@ function foodLine(food: {
   return text
 }
 
-export function WeekPlanner() {
+export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | null; onWeekChange: (start: string | null) => void }) {
   const [week, setWeek] = useState<WeekView | null>(null)
   const [pending, setPending] = useState<'load' | 'action' | null>('load')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [loadRevision, setLoadRevision] = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    void apiRequest<WeekView>('/api/weeks')
+    setPending('load')
+    setError('')
+    setNotice('')
+    void apiRequest<WeekView>(weekStart ? `/api/weeks?start=${encodeURIComponent(weekStart)}` : '/api/weeks')
       .then((current) => {
         if (!cancelled) setWeek(current)
       })
@@ -64,20 +69,8 @@ export function WeekPlanner() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [weekStart, loadRevision])
 
-  async function openWeek(weekStart: string | null) {
-    setPending('load')
-    setError('')
-    setNotice('')
-    try {
-      setWeek(await apiRequest<WeekView>(weekStart ? `/api/weeks?start=${weekStart}` : '/api/weeks'))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Impossibile caricare la settimana.')
-    } finally {
-      setPending(null)
-    }
-  }
 
   async function runAction(action: WeekAction, success: string) {
     if (!week || pending !== null) return
@@ -101,6 +94,9 @@ export function WeekPlanner() {
   }
 
   const busy = pending !== null
+  const selectedDay = week?.days.find((day) => day.date === selectedDate)
+    ?? week?.days.find((day) => day.date === week.today)
+    ?? week?.days[0]
 
   return (
     <section className="week-planner" id="settimana" aria-labelledby="week-planner-title">
@@ -118,16 +114,16 @@ export function WeekPlanner() {
         </div>
         {week && (
           <nav className="week-nav" aria-label="Cambia settimana">
-            <button className="secondary-button" type="button" onClick={() => void openWeek(week.previousWeekStart)} disabled={busy}>
+            <button className="secondary-button" type="button" onClick={() => onWeekChange(week.previousWeekStart)} disabled={busy}>
               ← Precedente
             </button>
-            <button className="secondary-button" type="button" onClick={() => void openWeek(week.nextWeekStart)} disabled={busy}>
+            <button className="secondary-button" type="button" onClick={() => onWeekChange(week.nextWeekStart)} disabled={busy}>
               Successiva →
             </button>
             <button
               className="secondary-button"
               type="button"
-              onClick={() => void openWeek(null)}
+              onClick={() => onWeekChange(null)}
               disabled={busy || (week.today >= week.weekStart && week.today <= week.weekEnd)}
             >
               Settimana in corso
@@ -136,7 +132,12 @@ export function WeekPlanner() {
         )}
       </div>
 
-      {error && <p className="message error-message" role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          <p className="message error-message">{error}</p>
+          <button className="secondary-button" type="button" disabled={busy} onClick={() => setLoadRevision((revision) => revision + 1)}>Riprova caricamento</button>
+        </div>
+      )}
       {notice && <p className="message success-message" role="status">{notice}</p>}
       {pending === 'load' && <p className="loading-inline" role="status">Caricamento della settimana…</p>}
 
@@ -151,10 +152,27 @@ export function WeekPlanner() {
               runAction={runAction}
             />
           )}
-          <ol className="week-days">
+          <div className="planner-day-tabs" role="group" aria-label="Giorni da pianificare">
             {week.days.map((day) => (
-              <DayCard key={day.date} week={week} day={day} busy={busy} runAction={runAction} />
+              <button
+                key={day.date}
+                className="planner-day-tab"
+                type="button"
+                aria-label={`${day.dayName} ${formatDay(day.date)}${day.past ? ', passato' : ''}`}
+                aria-pressed={selectedDay?.date === day.date}
+                onClick={() => setSelectedDate(day.date)}
+                disabled={busy}
+              >
+                <span>{day.dayName.slice(0, 3)}</span>
+                <strong>{Number(day.date.slice(8))}</strong>
+                {day.date === week.today && <small>Oggi</small>}
+                {day.past && <small>Passato</small>}
+              </button>
             ))}
+          </div>
+          <p className="planner-summary">Apri un giorno e modifica solo i pasti che vuoi organizzare diversamente.</p>
+          <ol className="week-days">
+            {selectedDay && <DayCard key={selectedDay.date} week={week} day={selectedDay} busy={busy} runAction={runAction} />}
           </ol>
         </div>
       )}
@@ -337,7 +355,7 @@ function DayCard({ week, day, busy, runAction }: { week: WeekView; day: WeekDayV
       : null
   return (
     <li className="week-day">
-      <details open={!day.past}>
+      <details open>
         <summary>
           <span>
             {day.dayName} {formatDay(day.date)}
@@ -455,7 +473,7 @@ function MealCard({
   )
 }
 
-function PlannedMealContent({ meal }: { meal: WeekMealView }) {
+export function PlannedMealContent({ meal }: { meal: WeekMealView }) {
   const wholeMeal = meal.mealOptions.find((option) => option.key === meal.mealChoice)
   // Foods planned whatever the combination, plus those of the chosen one.
   const plannedRows = meal.rows.filter(
