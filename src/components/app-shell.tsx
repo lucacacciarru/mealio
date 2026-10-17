@@ -63,13 +63,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       return
     }
     if (!response.ok) {
-      setView('signed-out')
-      await rememberDiarySession(0).catch(() => undefined)
-      if (response.status !== 401) setError('Impossibile verificare la sessione. Riprova tra poco.')
-      else if (sessionWasValid.current) setError('Sessione scaduta. Accedi di nuovo: i check-in in attesa sono conservati.')
-      sessionWasValid.current = false
+      if (response.status === 401) {
+        setView('signed-out')
+        await rememberDiarySession(0).catch(() => undefined)
+        if (sessionWasValid.current) setError('Sessione scaduta. Accedi di nuovo: i check-in in attesa sono conservati.')
+        sessionWasValid.current = false
+      } else {
+        const available = sessionWasValid.current || await hasOfflineDiarySession().catch(() => false)
+        setView(available ? 'signed-in' : 'signed-out')
+        setError('Impossibile verificare la sessione. Riprova tra poco.')
+      }
       return
     }
+    setError('')
     try {
       const session = await response.json() as { expiresAt: number }
       await rememberDiarySession(session.expiresAt)

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db'
 import { checkInOperations, diaryPlanSnapshots, mealCheckIns, PLAN_SLOTS } from '../db/schema'
@@ -28,8 +28,6 @@ export const DiaryMutationSchema = z.object({
 type DaySnapshot = Pick<DiaryDay, 'date' | 'weekStart' | 'weekStatus' | 'plannedVersion' | 'validVersion'> & {
   meals: WeekMealView[]
 }
-type CheckInRow = typeof mealCheckIns.$inferSelect
-
 export class DiaryConflictError extends HttpError {
   constructor(readonly date: string) {
     super('Questi pasti sono stati modificati da un altro dispositivo. Scegli quali check-in mantenere.', 409)
@@ -61,7 +59,10 @@ function originalSnapshot(date: string): DaySnapshot {
 export function getDiaryDay(date = todayInRome()): DiaryDay {
   if (!dateSchema.safeParse(date).success) throw new HttpError('Data non valida.', 400)
   const today = todayInRome()
-  const checkIns = db.select().from(mealCheckIns).where(eq(mealCheckIns.date, date)).all()
+  const checkIns = db.select().from(mealCheckIns)
+    .where(eq(mealCheckIns.date, date))
+    .orderBy(asc(mealCheckIns.createdAt), asc(sql`rowid`))
+    .all()
   const snapshots = new Map<string, DaySnapshot>()
   function snapshot(id: string) {
     const saved = snapshots.get(id) ?? readSnapshot(id)
@@ -70,10 +71,8 @@ export function getDiaryDay(date = todayInRome()): DiaryDay {
   }
   // Past unrecorded slots retain the plan seen at the first check-in too.
   // Today's unrecorded slots still follow planner edits; recorded ones do not.
-  const first = checkIns.reduce<CheckInRow | undefined>(
-    (earliest, row) => !earliest || row.createdAt < earliest.createdAt ? row : earliest,
-    undefined,
-  )
+  // Rowid preserves insertion order when millisecond timestamps tie.
+  const first = checkIns[0]
   const base = date < today && first ? snapshot(first.snapshotId) : originalSnapshot(date)
   const meals = PLAN_SLOTS.flatMap((slot) => {
     const checkIn = checkIns.find((row) => row.slot === slot)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,7 +17,7 @@ test('diary preserves recorded plans, retries once, and synchronizes past offlin
   const { db, sqlite } = await import('../db')
   try {
     migrate(db, { migrationsFolder: './drizzle' })
-    const { PLAN_SLOTS } = await import('../db/schema')
+    const { diaryPlanSnapshots, mealCheckIns, PLAN_SLOTS } = await import('../db/schema')
     const { createPlanVersion, ensureMeal, addComponent, activatePlanVersion } = await import('./plans')
     const { confirmWeek, setWeekFreeMeal } = await import('./weeks')
     const { DiaryConflictError, getDiaryDay, saveDiaryCheckIns } = await import('./diary')
@@ -38,6 +38,55 @@ test('diary preserves recorded plans, retries once, and synchronizes past offlin
       entries: [{ slot: 'lunch', followed: true, note: null, recordedAt: Date.parse('2026-10-19T10:00:00Z'), baseRevision: 0 }],
     }), (cause) => cause instanceof HttpError && cause.status === 400)
     assert.equal(getDiaryDay(preview.date).meals.find((meal) => meal.plan.slot === 'lunch')!.checkIn, null)
+
+    const historyDate = '2026-10-16'
+    const historyDay = getDiaryDay(historyDate)
+    function snapshotWithBreakfastLabel(label: string) {
+      return {
+        date: historyDay.date,
+        weekStart: historyDay.weekStart,
+        weekStatus: historyDay.weekStatus,
+        plannedVersion: historyDay.plannedVersion,
+        validVersion: historyDay.validVersion,
+        meals: historyDay.meals.map(({ plan }) => plan.slot === 'breakfast'
+          ? {
+              ...plan,
+              rows: plan.rows.map((row, rowIndex) => rowIndex === 0
+                ? {
+                    ...row,
+                    components: row.components.map((component, componentIndex) => componentIndex === 0
+                      ? { ...component, label }
+                      : component),
+                  }
+                : row),
+            }
+          : plan),
+      }
+    }
+    const firstPlan = snapshotWithBreakfastLabel('Piano del primo check-in')
+    const secondPlan = snapshotWithBreakfastLabel('Piano del secondo check-in')
+    const firstSnapshotId = createHash('sha256').update(JSON.stringify(firstPlan)).digest('hex')
+    const secondSnapshotId = createHash('sha256').update(JSON.stringify(secondPlan)).digest('hex')
+    db.insert(diaryPlanSnapshots).values([
+      { id: firstSnapshotId, date: historyDate, snapshotJson: JSON.stringify(firstPlan) },
+      { id: secondSnapshotId, date: historyDate, snapshotJson: JSON.stringify(secondPlan) },
+    ]).run()
+    const createdAt = Date.now()
+    for (const [slot, snapshotId] of [['lunch', firstSnapshotId], ['dinner', secondSnapshotId]] as const) {
+      db.insert(mealCheckIns).values({
+        date: historyDate,
+        slot,
+        snapshotId,
+        followed: true,
+        note: null,
+        recordedAt: Date.parse('2026-10-16T10:00:00Z'),
+        createdAt,
+        revision: 1,
+      }).run()
+    }
+    const tiedHistory = getDiaryDay(historyDate)
+    assert.equal(tiedHistory.meals.find((meal) => meal.plan.slot === 'breakfast')!.plan.rows[0]!.components[0]!.label, 'Piano del primo check-in')
+
     const original = getDiaryDay()
     const breakfast = original.meals.find((meal) => meal.plan.slot === 'breakfast')!
     assert.equal(breakfast.checkIn, null)
