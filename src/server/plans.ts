@@ -79,7 +79,7 @@ function assertComponentVersionIsDraft(componentId: number): void {
   assertVersionIsDraft(component.versionId)
 }
 
-function todayInRome(): string {
+export function todayInRome(): string {
   // en-CA formats dates as YYYY-MM-DD.
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date())
 }
@@ -433,6 +433,7 @@ export type PlanComponentView = {
   printedUnitText: string | null
   state: PlanComponentState
   alternativeGroup: string | null
+  combination: string | null
   page: number | null
   sourceQuote: string | null
   notes: string | null
@@ -454,8 +455,8 @@ export type EquivalenceView = {
   sourceQuote: string | null
   note: string | null
   scope:
-    | { type: 'component'; dayIndex: number; dayName: string; slot: PlanSlot; label: string }
-    | { type: 'meal'; dayIndex: number; dayName: string; slot: PlanSlot }
+    | { type: 'component'; componentId: number; dayIndex: number; dayName: string; slot: PlanSlot; label: string }
+    | { type: 'meal'; mealId: number; dayIndex: number; dayName: string; slot: PlanSlot }
     | { type: 'unresolved' }
   items: {
     id: number
@@ -529,6 +530,7 @@ export function getPlan(versionId: number): PlanView | null {
         printedUnitText: component.printedUnitText,
         state: component.state,
         alternativeGroup: component.alternativeGroup,
+        combination: component.combination,
         page: component.page,
         sourceQuote: component.sourceQuote,
         notes: component.notes,
@@ -612,6 +614,7 @@ export function listEquivalences(versionId: number): EquivalenceView[] {
       if (resolved) {
         scope = {
           type: 'component',
+          componentId: equivalence.scopeComponentId,
           dayIndex: resolved.dayIndex,
           dayName: DAY_NAMES[resolved.dayIndex],
           slot: resolved.slot,
@@ -623,6 +626,7 @@ export function listEquivalences(versionId: number): EquivalenceView[] {
       if (resolved) {
         scope = {
           type: 'meal',
+          mealId: equivalence.scopeMealId,
           dayIndex: resolved.dayIndex,
           dayName: DAY_NAMES[resolved.dayIndex],
           slot: resolved.slot,
@@ -674,6 +678,7 @@ export type ComponentSnapshot = {
   state: PlanComponentState
   foodCanonicalName: string | null
   alternativeGroup: string | null
+  combination: string | null
   page: number | null
   sourceQuote: string | null
   notes: string | null
@@ -742,6 +747,7 @@ function snapshotOf(component: PlanComponentView): ComponentSnapshot {
     state: component.state,
     foodCanonicalName: component.foodCanonicalName,
     alternativeGroup: component.alternativeGroup,
+    combination: component.combination,
     page: component.page,
     sourceQuote: component.sourceQuote,
     notes: component.notes,

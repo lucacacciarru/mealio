@@ -1,0 +1,1 @@
+ALTER TABLE `plan_components` ADD `combination` text;

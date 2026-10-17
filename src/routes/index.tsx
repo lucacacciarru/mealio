@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SyntheticEvent } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { PlanImportWorkspace } from '../components/plan-import-workspace'
+import { WeekPlanner } from '../components/week-planner'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
@@ -12,6 +13,8 @@ function HomePage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  // Remounts the planner after a plan activation so it reloads the week.
+  const [planRevision, setPlanRevision] = useState(0)
 
   useEffect(() => {
     void refreshSession()
@@ -102,7 +105,8 @@ function HomePage() {
             </button>
           </div>
           {error && <p className="message error-message" role="alert">{error}</p>}
-          <PlanImportWorkspace />
+          <WeekPlanner key={planRevision} />
+          <PlanImportWorkspace onPlanActivated={() => setPlanRevision((revision) => revision + 1)} />
         </section>
       ) : (
         <section className="panel login-panel">

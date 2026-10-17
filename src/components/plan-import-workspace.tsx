@@ -1,14 +1,9 @@
 import { Fragment, useEffect, useState } from 'react'
 import type { ChangeEvent, SyntheticEvent } from 'react'
 import type { PlanReview } from '../server/plan-import-schema'
+import { apiRequest } from './api'
+import { FoodText, SLOT_LABELS } from './plan-text'
 
-const SLOT_LABELS = {
-  breakfast: 'Colazione',
-  morning_snack: 'Spuntino mattutino',
-  lunch: 'Pranzo',
-  afternoon_snack: 'Spuntino pomeridiano',
-  dinner: 'Cena',
-} as const
 const DAY_LABELS = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'] as const
 const SLOT_ORDER = ['breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner'] as const
 const MAX_FILE_BYTES = 15 * 1024 * 1024
@@ -27,31 +22,6 @@ type BusyAction = 'upload' | 'extract' | 'activate' | null
 type Meal = PlanReview['days'][number]['meals'][number]
 type MealComponent = Meal['components'][number]
 type Equivalence = PlanReview['equivalences'][number]
-type FoodFields = {
-  label: string
-  quantityText: string | null
-  unitText: string | null
-  state?: MealComponent['review']['state']
-  notes?: string | null
-}
-
-async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init })
-  let payload: unknown
-  try {
-    payload = await response.json()
-  } catch {
-    throw new Error('Risposta del servizio non leggibile.')
-  }
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
-        ? payload.error
-        : 'Operazione non riuscita.'
-    throw new Error(message)
-  }
-  return payload as T
-}
 
 function summaryOf({ id, originalName, byteSize, status, createdAt, sourceAvailable }: ImportSummary): ImportSummary {
   return { id, originalName, byteSize, status, createdAt, sourceAvailable }
@@ -82,7 +52,8 @@ function statusLabel(status: ImportStatus): string {
   return 'Attivato'
 }
 
-export function PlanImportWorkspace() {
+// `onPlanActivated` lets the page refresh views that depend on the active plan.
+export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () => void }) {
   const [imports, setImports] = useState<ImportSummary[]>([])
   const [detail, setDetail] = useState<ImportDetail | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
@@ -213,6 +184,7 @@ export function PlanImportWorkspace() {
       setDetail({ ...detail, status: 'activated' })
       upsertImport({ ...detail, status: 'activated' })
       setNotice(`Piano attivo dal ${formatDate(result.validFrom)}.`)
+      onPlanActivated()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Attivazione non riuscita.')
     } finally {
@@ -469,24 +441,43 @@ function alternativeRows(components: MealComponent[]): MealComponent[][] {
 
 function MealSummary({ meal }: { meal: Meal }) {
   const components = meal.components.filter((component) => !component.removed)
+  // As in the planner, a meal offers a choice only with two or more combinations; foods
+  // without a combination belong to all of them.
+  const labels = [
+    ...new Set(
+      components
+        .map((component) => component.review.combination)
+        .filter((combination): combination is string => combination !== null),
+    ),
+  ]
+  const combinations = labels.length > 1 ? labels : []
+  const shared =
+    combinations.length > 0 ? components.filter((component) => component.review.combination === null) : components
   return (
     <div className="summary-meal">
       <h4>{SLOT_LABELS[meal.slot]}</h4>
       {components.length === 0 ? (
         <p className="summary-missing">Nessun alimento letto.</p>
       ) : (
-        <ul className="summary-foods">
-          {alternativeRows(components).map((row, rowIndex) => (
-            <li key={rowIndex}>
-              {row.map((component, index) => (
-                <Fragment key={index}>
-                  {index > 0 && <span className="summary-or"> oppure </span>}
-                  <FoodText food={component.review} />
-                </Fragment>
-              ))}
-            </li>
-          ))}
-        </ul>
+        <>
+          {shared.length > 0 && combinations.length > 0 && <p className="summary-note">In tutte le combinazioni:</p>}
+          {shared.length > 0 && <FoodRows components={shared} />}
+          {combinations.length > 0 && (
+            <>
+              <p className="summary-note">{combinations.length} combinazioni a scelta:</p>
+              <ol className="summary-combinations">
+                {combinations.map((combination) => (
+                  <li key={combination}>
+                    <strong>{combination}</strong>
+                    <FoodRows
+                      components={components.filter((component) => component.review.combination === combination)}
+                    />
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </>
       )}
       {meal.review.notes && <p className="summary-note">{meal.review.notes}</p>}
       <WarningList warnings={mealWarnings(meal)} />
@@ -494,23 +485,20 @@ function MealSummary({ meal }: { meal: Meal }) {
   )
 }
 
-function FoodText({ food }: { food: FoodFields }) {
-  const amount = [food.quantityText?.trim(), food.unitText?.trim()].filter(Boolean).join(' ')
+function FoodRows({ components }: { components: MealComponent[] }) {
   return (
-    <span>
-      {food.label}
-      {amount ? (
-        <span className="summary-amount"> {amount}</span>
-      ) : (
-        <span className="summary-missing"> · quantità non indicata</span>
-      )}
-      {food.state === 'raw' && <span className="summary-state"> a crudo</span>}
-      {food.state === 'cooked' && <span className="summary-state"> a cotto</span>}
-      {food.state === 'unspecified' && (
-        <span className="summary-missing"> · stato crudo/cotto non specificato</span>
-      )}
-      {food.notes && <span className="summary-note"> ({food.notes})</span>}
-    </span>
+    <ul className="summary-foods">
+      {alternativeRows(components).map((row, rowIndex) => (
+        <li key={rowIndex}>
+          {row.map((component, index) => (
+            <Fragment key={index}>
+              {index > 0 && <span className="summary-or"> oppure </span>}
+              <FoodText food={component.review} />
+            </Fragment>
+          ))}
+        </li>
+      ))}
+    </ul>
   )
 }
 
