@@ -19,6 +19,8 @@ pnpm dev
 
 The local UI is available at `http://localhost:5009`. `.env`, the SQLite database, and the `data/` directory are excluded from Git.
 
+The authenticated app has three separate screens: **Calendario** (`/`, optional `?date=YYYY-MM-DD`), **Settimana** (`/settimana`, optional `?start=YYYY-MM-DD` for an ISO Monday), and **Dieta** (`/dieta`). The calendar is the only home content. Navigation is a bottom bar on mobile and a sidebar on desktop; session handling and the offline outbox stay mounted across route changes. Unimplemented groceries/statistics screens are not shown as empty navigation items.
+
 ## Import a meal plan PDF
 
 Set `OPENROUTER_API_KEY` in the local `.env` to enable extraction, then create an OpenRouter preset with the slug `mealio-prod` at https://openrouter.ai/settings/presets and choose the model there; it is not set in code or environment variables, so it can change without a deploy. Pick a model that reads PDF files natively and that OpenRouter does not moderate, for example a Google Gemini model: OpenRouter moderates some models (OpenAI ones among them) and rejects a flagged plan with HTTP 403. Keep the key out of source control and Railway config values; configure it as a private Railway variable in production. The import accepts PDF files up to 15 MB.
@@ -42,7 +44,7 @@ Migration SQL and their snapshots in `drizzle/` are version-controlled. In produ
 
 ## Plan the week
 
-The signed-in page shows the planner above the PDF import. It covers one ISO week (Monday–Sunday) and takes each date from the plan version valid on that date, so a week can mix two versions when a new one starts mid-week. Today, and therefore which days are past, follows `Europe/Rome`.
+Open **Settimana**, or follow **Pianifica** from a calendar date, to organize its ISO week (Monday–Sunday). The seven-day selector opens one day's meals and allowed changes at a time instead of rendering the whole planner below the daily diary. Previous/next week controls update the route, so direct links and browser history retain the chosen week. Each date takes the plan version valid on that date; a week can mix two versions when a new one starts mid-week. Today, and therefore which days are past, follows `Europe/Rome`.
 
 An unconfirmed week shows the original plan, labelled **Settimana non confermata**: until the week is confirmed, the original plan is the one that applies. **Conferma la settimana** stores a snapshot of every planned meal, with the equivalences scoped to it, in `weeks` and `week_meals`; later plan versions and changes to other days never rewrite it. A week that has already ended cannot be confirmed.
 
@@ -53,6 +55,30 @@ In a confirmed week only dates from today on can change, and only in these ways:
 - choose one free meal per week, with an optional description of up to 200 characters. It replaces the planned meal at that date and slot, has no ingredients, and follows the meal when it is swapped.
 
 If a newer plan version starts after a week was confirmed, the affected days keep their snapshot and are flagged. **Aggiorna al piano valido** replans those days, from today on, from the valid version and drops their swaps and substitutions; the free meal stays.
+
+## Calendar and meal check-ins
+
+**Calendario** opens on today. Its day strip, week arrows and compact date picker select another day without entering planning mode. Past dates show read-only recorded history; future dates show read-only planned previews, and the API still rejects future check-ins. The calendar shows the actual planned choices and quantities, preserving explicit missing/ambiguous data. An unconfirmed week uses the original plan and still allows check-ins.
+
+Meal cards expose foods, quantities, an explicit **Non registrato** / **Seguito** / **Non seguito** state, and a one-tap **Seguito** action. Notes, recording time and **Non seguito** are under each meal's disclosure rather than five always-open forms. Notes are saved explicitly (up to 1,000 characters), and unsaved drafts require confirmation before route/date navigation discards them. A save or conflict resolution keeps the meal disclosure open and refreshes the note from the selected authoritative record. Time is displayed in `Europe/Rome`. A planned free meal is recorded as followed, without invented ingredients or estimated nutrition.
+
+**Tutto seguito** records the day's meals as followed; already-followed meals keep their note and time. Correct exceptions on the individual meal. Version/provenance information is available below the meals, while a changed valid diet is flagged visibly. PDF summaries, source files, new imports and activation remain on **Dieta**; activating a plan and returning to the calendar/planner reloads the applicable data rather than relying on the previous single-page refresh callbacks.
+
+The server retains immutable day-plan copies in `diary_plan_snapshots`. Each row in `meal_check_ins` keeps the meal snapshot from its first check-in, even when the note/status is edited or the planner changes. Past unrecorded meals use the day plan captured at its first check-in. Offline submissions can arrive on a later date without changing their original meal or recording time. Check-in revisions detect concurrent edits; `check_in_operations` makes retries idempotent, including when a response was lost before a later correction.
+
+### Offline use
+
+Sign in and open the calendar dates you intend to use before going offline; today's date must be loaded to record today's meals. Offline admission requires an unexpired stored session and at least one cached calendar day, so a loaded past date can be reopened without a cached copy of today. The browser stores loaded calendar days and a durable change queue in IndexedDB. The service worker caches only the anonymous public app shell and code, never API responses or source PDFs, and recognizes only `/`, `/settimana` and `/dieta` as app navigations, including their client-side search parameters. This supports direct offline reloads on the three screens and recording/reopening a loaded day. A date not previously loaded remains unavailable rather than inventing a plan. Planner/import data still requires connectivity; the shared navigation remains usable to return to the cached calendar. Local meal and note data is private health data: use a trusted browser profile/device.
+
+The client build emits `mealio-assets.json` with the public bundle's complete asset list, including lazy route chunks. The worker caches that list before publishing a production shell instead of inferring imports from JavaScript source text. In development, the browser reports actually loaded public resources and preloads the three route modules without mounting their data-fetching components.
+
+An offline save means **saved on this device**, not synchronized. Pending counts remain visible. With the authenticated app open, reconnecting resumes synchronization even on the week or diet screen; focus and the calendar's retry button also retry pending operations. A conflict pauses synchronization until **Usa i miei check-in** or **Mantieni quelli sul server** explicitly resolves it. Session expiry requires online sign-in again and retains pending edits. Explicit logout removes the local meal cache and queue, with confirmation before discarding unsynchronized check-ins.
+
+The persistence regression scenario uses an isolated synthetic database:
+
+```sh
+pnpm exec tsx --test src/server/diary.test.ts
+```
 
 ## Railway deployment
 

@@ -52,8 +52,7 @@ function statusLabel(status: ImportStatus): string {
   return 'Attivato'
 }
 
-// `onPlanActivated` lets the page refresh views that depend on the active plan.
-export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () => void }) {
+export function PlanImportWorkspace() {
   const [imports, setImports] = useState<ImportSummary[]>([])
   const [detail, setDetail] = useState<ImportDetail | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
@@ -62,6 +61,7 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
   const [busy, setBusy] = useState<BusyAction>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [loadRevision, setLoadRevision] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -83,7 +83,7 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadRevision])
 
   function upsertImport(item: ImportSummary) {
     const summary = summaryOf(item)
@@ -184,7 +184,6 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
       setDetail({ ...detail, status: 'activated' })
       upsertImport({ ...detail, status: 'activated' })
       setNotice(`Piano attivo dal ${formatDate(result.validFrom)}.`)
-      onPlanActivated()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Attivazione non riuscita.')
     } finally {
@@ -207,9 +206,9 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
     <section className="plan-import-workspace" aria-labelledby="plan-import-title">
       <div className="workspace-heading">
         <div>
-          <span className="eyebrow">Piano alimentare</span>
-          <h2 id="plan-import-title">Carica il PDF, leggi il riepilogo.</h2>
-          <p>L’AI legge il piano e ti mostra cosa ha trovato per ogni giorno e pasto.</p>
+          <span className="eyebrow">Documenti e versioni</span>
+          <h2 id="plan-import-title">{detail ? 'Il tuo piano alimentare' : 'I tuoi PDF'}</h2>
+          <p>{detail ? 'Riepilogo del piano e documento originale.' : 'Apri un riepilogo salvato o importa una nuova dieta.'}</p>
         </div>
         {detail && (
           <button className="secondary-button workspace-nav-button" type="button" onClick={closeDetail} disabled={busy !== null}>
@@ -218,7 +217,12 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
         )}
       </div>
 
-      {error && <p className="message error-message" role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          <p className="message error-message">{error}</p>
+          <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => setLoadRevision((revision) => revision + 1)}>Riprova caricamento</button>
+        </div>
+      )}
       {notice && <p className="message success-message" role="status">{notice}</p>}
 
       {detail ? (
@@ -304,6 +308,8 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
         <p className="loading-inline" role="status">Apertura del PDF…</p>
       ) : (
         <div className="import-start-grid">
+          <details className="diet-upload-details" open={imports.length === 0}>
+            <summary>Importa una nuova dieta</summary>
           <form className="import-upload-card" onSubmit={uploadAndAnalyze}>
             <h3>Nuovo piano</h3>
             <label htmlFor="plan-pdf-file">File PDF</label>
@@ -322,6 +328,7 @@ export function PlanImportWorkspace({ onPlanActivated }: { onPlanActivated: () =
               Il PDF resta salvato in privato e viene inviato a OpenRouter per l’analisi. La richiesta limita l’inferenza a endpoint ZDR e seleziona il parser PDF nativo. Le impostazioni Plugin devono lasciare `file-parser` non forzato o impostarlo sul parser nativo; ZDR non copre i backend dei plugin. Massimo 15 MB.
             </p>
           </form>
+          </details>
 
           <section className="import-history-card" aria-labelledby="import-history-title">
             <h3 id="import-history-title">PDF caricati</h3>

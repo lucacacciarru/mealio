@@ -12,6 +12,17 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
+    {
+      name: 'mealio-public-asset-manifest',
+      generateBundle(_options, bundle) {
+        if (this.environment.name !== 'client') return
+        this.emitFile({
+          type: 'asset',
+          fileName: 'mealio-assets.json',
+          source: JSON.stringify(Object.keys(bundle).filter((name) => name.startsWith('assets/')).map((name) => `/${name}`)),
+        })
+      },
+    },
     tanstackStart({
       spa: {
         enabled: true,

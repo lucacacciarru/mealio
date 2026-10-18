@@ -4,6 +4,7 @@ import {
   Outlet,
   Scripts,
 } from '@tanstack/react-router'
+import { AppShell } from '../components/app-shell'
 import '../styles.css'
 
 export const Route = createRootRoute({
@@ -25,7 +26,7 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body>
-        <Outlet />
+        <AppShell><Outlet /></AppShell>
         <Scripts />
       </body>
     </html>

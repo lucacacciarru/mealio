@@ -62,9 +62,13 @@ The list is derived from planned meals, excluding free-meal items. It sums quant
 
 Two shopping rounds are planned: Monday and Thursday. After a plan change, the list shows the difference from items already purchased. Checkboxes must work offline. The list is recalculated from the plan; checkmarks, manual items, and pantry quantities are stored separately.
 
-### 5. Today and diary
+### 5. Calendar, Today and diary
 
 Each meal has a binary check-in: **followed** or **not followed**, with an optional note. A meal without a check-in is “not recorded,” not “not followed.” The user can record all meals for a day with one action when they were followed.
+
+The daily calendar is the application's home, not a dashboard containing every feature. It shows the meals actually chosen for the selected week's planning, with quantities and explicit unresolved alternatives. A day selector opens past recorded history or future planned previews; only today's meals offer check-in actions. Cards keep the food information visible while optional notes, recording details and secondary actions open on demand.
+
+Weekly planning and diet/PDF management have dedicated screens, reached through shared navigation. Importing or changing the professional's diet is separate from organizing a week, and neither form is embedded below the daily calendar. Future groceries and progress views also belong to their own screens; navigation should not expose empty destinations before those features are usable.
 
 ### 6. Macros and statistics
 

@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DietaRouteImport } from './routes/dieta'
+import { Route as SettimanaRouteImport } from './routes/settimana'
+import { Route as ApiDiaryRouteImport } from './routes/api/diary'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiImportsRouteImport } from './routes/api/imports'
 import { Route as ApiWeeksRouteImport } from './routes/api/weeks'
@@ -20,6 +23,21 @@ import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DietaRoute = DietaRouteImport.update({
+  id: '/dieta',
+  path: '/dieta',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettimanaRoute = SettimanaRouteImport.update({
+  id: '/settimana',
+  path: '/settimana',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDiaryRoute = ApiDiaryRouteImport.update({
+  id: '/api/diary',
+  path: '/api/diary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -55,6 +73,9 @@ const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dieta': typeof DietaRoute
+  '/settimana': typeof SettimanaRoute
+  '/api/diary': typeof ApiDiaryRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -64,6 +85,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dieta': typeof DietaRoute
+  '/settimana': typeof SettimanaRoute
+  '/api/diary': typeof ApiDiaryRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -74,6 +98,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dieta': typeof DietaRoute
+  '/settimana': typeof SettimanaRoute
+  '/api/diary': typeof ApiDiaryRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -85,6 +112,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/dieta'
+    | '/settimana'
+    | '/api/diary'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -94,6 +124,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/dieta'
+    | '/settimana'
+    | '/api/diary'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -103,6 +136,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/dieta'
+    | '/settimana'
+    | '/api/diary'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -113,6 +149,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DietaRoute: typeof DietaRoute
+  SettimanaRoute: typeof SettimanaRoute
+  ApiDiaryRoute: typeof ApiDiaryRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiImportsRoute: typeof ApiImportsRoute
   ApiWeeksRoute: typeof ApiWeeksRoute
@@ -128,6 +167,27 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dieta': {
+      id: '/dieta'
+      path: '/dieta'
+      fullPath: '/dieta'
+      preLoaderRoute: typeof DietaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settimana': {
+      id: '/settimana'
+      path: '/settimana'
+      fullPath: '/settimana'
+      preLoaderRoute: typeof SettimanaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/diary': {
+      id: '/api/diary'
+      path: '/api/diary'
+      fullPath: '/api/diary'
+      preLoaderRoute: typeof ApiDiaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -177,6 +237,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DietaRoute: DietaRoute,
+  SettimanaRoute: SettimanaRoute,
+  ApiDiaryRoute: ApiDiaryRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiImportsRoute: ApiImportsRoute,
   ApiWeeksRoute: ApiWeeksRoute,

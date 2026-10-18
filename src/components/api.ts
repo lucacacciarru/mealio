@@ -1,5 +1,10 @@
 export async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init })
+  let response: Response
+  try {
+    response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init })
+  } catch {
+    throw new Error('Connessione non disponibile. Collegati e riprova.')
+  }
   let payload: unknown
   try {
     payload = await response.json()
