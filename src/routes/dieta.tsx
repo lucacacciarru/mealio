@@ -13,9 +13,9 @@ function DietPage() {
         <div>
           <span className="eyebrow">Il piano del professionista</span>
           <h1 id="diet-page-title">La tua dieta</h1>
-          <p>Consulta i PDF e i riepiloghi salvati, oppure importa una nuova dieta e scegli da quando seguirla.</p>
+          <p>Carica il PDF, consulta i pasti e le varianti, poi usa la dieta per organizzare la settimana.</p>
         </div>
-        <Link className="screen-back-link" to="/" search={{ date: undefined }}>Torna al calendario</Link>
+        <Link className="screen-back-link" to="/" search={{ start: undefined }}>Vai alla settimana</Link>
       </header>
       <PlanImportWorkspace />
     </section>

@@ -335,6 +335,8 @@ export function getPlanImport(id: string) {
     createdAt: record.createdAt,
     authorizedAt: record.authorizedAt,
     sourceAvailable: sourcePdfAvailable(record),
+    validFrom: db.select({ validFrom: planVersions.validFrom })
+      .from(planVersions).where(eq(planVersions.sourceImportId, id)).get()?.validFrom ?? null,
     extraction,
   }
 }

@@ -16,10 +16,15 @@ export type FoodFields = {
   notes?: string | null
 }
 
+// Quantity and unit as printed; empty when the plan gives none.
+export function printedAmount(food: Pick<FoodFields, 'quantityText' | 'unitText'>): string {
+  return [food.quantityText?.trim(), food.unitText?.trim()].filter(Boolean).join(' ')
+}
+
 // A food as printed in the plan; missing quantities and an unspecified
 // raw/cooked state stay visible instead of being guessed.
 export function FoodText({ food }: { food: FoodFields }) {
-  const amount = [food.quantityText?.trim(), food.unitText?.trim()].filter(Boolean).join(' ')
+  const amount = printedAmount(food)
   return (
     <span>
       {food.label}

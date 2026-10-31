@@ -1,0 +1,18 @@
+.plan-import-workspace .diet-secondary { display: grid; gap: 16px; margin-top: 24px; }
+.plan-import-workspace .diet-upload-details > summary,
+.plan-import-workspace .import-history-card > summary { cursor: pointer; font-weight: 700; padding: 12px 0; }
+.plan-import-workspace .diet-upload-details > .import-upload-card { margin-top: 10px; }
+.plan-import-workspace .diet-day-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+.plan-import-workspace .diet-day-picker button { min-height: 44px; padding: 8px 12px; font-size: 13px; }
+.plan-import-workspace .diet-day-picker button[aria-pressed='true'] { background: var(--sage); border-color: var(--green); color: var(--green-dark); }
+.plan-import-workspace .diet-selected-day > h4 { margin: 0 0 12px; }
+.plan-import-workspace .diet-selected-day .summary-meals { padding: 0; }
+.plan-import-workspace .diet-selected-day .summary-meal { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.plan-import-workspace .diet-provenance,
+.plan-import-workspace .diet-technical-details { margin-top: 14px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.plan-import-workspace .diet-provenance summary,
+.plan-import-workspace .diet-technical-details summary { cursor: pointer; color: var(--green-dark); }
+.plan-import-workspace .diet-provenance blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--line); }
+.plan-import-workspace .completed-card .primary-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.plan-import-workspace summary:focus-visible,
+.plan-import-workspace .diet-day-picker button:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }

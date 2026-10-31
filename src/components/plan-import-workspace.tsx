@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import type { ChangeEvent, SyntheticEvent } from 'react'
+import { Link } from '@tanstack/react-router'
+import './plan-import-workspace.css'
 import type { PlanReview } from '../server/plan-import-schema'
 import { apiRequest } from './api'
 import { FoodText, SLOT_LABELS } from './plan-text'
@@ -17,7 +19,7 @@ type ImportSummary = {
   createdAt: number
   sourceAvailable: boolean
 }
-type ImportDetail = ImportSummary & { extraction: PlanReview | null }
+type ImportDetail = ImportSummary & { extraction: PlanReview | null; validFrom: string | null }
 type BusyAction = 'upload' | 'extract' | 'activate' | null
 type Meal = PlanReview['days'][number]['meals'][number]
 type MealComponent = Meal['components'][number]
@@ -32,6 +34,13 @@ function todayDate(): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
   return `${now.getFullYear()}-${month}-${day}`
+}
+
+function planningWeek(validFrom: string | null): string {
+  const today = todayDate()
+  const date = new Date(`${validFrom && validFrom > today ? validFrom : today}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7)
+  return date.toISOString().slice(0, 10)
 }
 
 function formatBytes(bytes: number): string {
@@ -62,23 +71,28 @@ export function PlanImportWorkspace() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loadRevision, setLoadRevision] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
     void apiRequest<{ imports: ImportSummary[] }>('/api/imports')
-      .then((payload) => {
-        if (!cancelled) {
-          setImports((current) => {
-            const merged = new Map(payload.imports.map((item) => [item.id, item]))
-            current.forEach((item) => merged.set(item.id, item))
-            return [...merged.values()]
-              .sort((left, right) => right.createdAt - left.createdAt)
-              .slice(0, 30)
-          })
+      .then(async (payload) => {
+        if (cancelled) return
+        const recent = [...payload.imports].sort((left, right) => right.createdAt - left.createdAt)
+        setImports(recent)
+        const latest = recent.find((item) => item.sourceAvailable && item.status !== 'uploaded')
+          ?? recent[0]
+        if (latest) {
+          const saved = await apiRequest<ImportDetail>(`/api/imports?id=${encodeURIComponent(latest.id)}`)
+          if (!cancelled) setDetail(saved)
         }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : 'Impossibile caricare le importazioni.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
@@ -108,11 +122,6 @@ export function PlanImportWorkspace() {
     }
   }
 
-  function closeDetail() {
-    setDetail(null)
-    setError('')
-    setNotice('')
-  }
 
   async function analyze(target: ImportSummary) {
     setError('')
@@ -125,7 +134,7 @@ export function PlanImportWorkspace() {
         body: JSON.stringify({ action: 'extract', id: target.id, confirmed: true }),
       })
       const extracted = { ...summaryOf(target), status: 'extracted' as const }
-      setDetail({ ...extracted, extraction })
+      setDetail({ ...extracted, extraction, validFrom: null })
       upsertImport(extracted)
       setNotice('Analisi completata.')
     } catch (cause) {
@@ -164,7 +173,7 @@ export function PlanImportWorkspace() {
     form.reset()
     setSelectedFile(null)
     upsertImport(saved)
-    setDetail({ ...saved, extraction: null })
+    setDetail({ ...saved, extraction: null, validFrom: null })
     setValidFrom(todayDate())
     await analyze(saved)
   }
@@ -181,7 +190,7 @@ export function PlanImportWorkspace() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'activate', id: detail.id, validFrom }),
       })
-      setDetail({ ...detail, status: 'activated' })
+      setDetail({ ...detail, status: 'activated', validFrom: result.validFrom })
       upsertImport({ ...detail, status: 'activated' })
       setNotice(`Piano attivo dal ${formatDate(result.validFrom)}.`)
     } catch (cause) {
@@ -203,19 +212,7 @@ export function PlanImportWorkspace() {
   }
 
   return (
-    <section className="plan-import-workspace" aria-labelledby="plan-import-title">
-      <div className="workspace-heading">
-        <div>
-          <span className="eyebrow">Documenti e versioni</span>
-          <h2 id="plan-import-title">{detail ? 'Il tuo piano alimentare' : 'I tuoi PDF'}</h2>
-          <p>{detail ? 'Riepilogo del piano e documento originale.' : 'Apri un riepilogo salvato o importa una nuova dieta.'}</p>
-        </div>
-        {detail && (
-          <button className="secondary-button workspace-nav-button" type="button" onClick={closeDetail} disabled={busy !== null}>
-            Carica un altro PDF
-          </button>
-        )}
-      </div>
+    <section className="plan-import-workspace" aria-label="Pasti della dieta">
 
       {error && (
         <div role="alert">
@@ -224,6 +221,7 @@ export function PlanImportWorkspace() {
         </div>
       )}
       {notice && <p className="message success-message" role="status">{notice}</p>}
+      {detail && openingId && <p className="loading-inline" role="status">Apertura del PDF…</p>}
 
       {detail ? (
         <div className="import-detail-stack">
@@ -243,9 +241,7 @@ export function PlanImportWorkspace() {
                   Apri il PDF
                 </a>
               )}
-              <button type="button" className="text-button" onClick={closeDetail} disabled={busy !== null}>
-                Tutti i PDF
-              </button>
+              <a className="text-button" href="#diet-other-pdfs">Altri PDF</a>
             </div>
           </div>
 
@@ -270,13 +266,18 @@ export function PlanImportWorkspace() {
             </section>
           ) : null}
 
-          {detail.extraction && <PlanSummary extraction={detail.extraction} />}
-
+          {detail.status === 'activated' && (
+            <section className="completed-card">
+              <h3>Dieta già attivata</h3>
+              <p>Puoi organizzare i pasti e le varianti settimana per settimana. Le settimane già salvate restano invariate.</p>
+              <Link className="primary-button" to="/settimana" search={{ start: planningWeek(detail.validFrom) }}>Pianifica la settimana</Link>
+            </section>
+          )}
           {detail.status === 'extracted' &&
             (detail.sourceAvailable ? (
               <form className="activation-form import-step-card" onSubmit={activate}>
-                <h3>Usa questo piano</h3>
-                <p>Diventa il piano attivo dalla data che scegli.</p>
+                <h3>Usa questa dieta</h3>
+                <p>Scegli da quando seguirla. L’analisi da sola non attiva la dieta; le settimane già salvate restano invariate.</p>
                 <label htmlFor="import-valid-from">Attivo dal</label>
                 <input
                   id="import-valid-from"
@@ -284,10 +285,10 @@ export function PlanImportWorkspace() {
                   required
                   value={validFrom}
                   onChange={(event) => setValidFrom(event.currentTarget.value)}
-                  disabled={busy !== null}
+                  disabled={busy !== null || openingId !== null}
                 />
-                <button className="primary-button" type="submit" disabled={busy !== null || !validFrom}>
-                  {busy === 'activate' ? 'Attivazione…' : 'Attiva il piano'}
+                <button className="primary-button" type="submit" disabled={busy !== null || openingId !== null || !validFrom}>
+                  {busy === 'activate' ? 'Attivazione…' : 'Usa questa dieta'}
                 </button>
               </form>
             ) : (
@@ -297,41 +298,40 @@ export function PlanImportWorkspace() {
               </section>
             ))}
 
-          {detail.status === 'activated' && (
-            <section className="completed-card">
-              <h3>Piano attivato</h3>
-              <p>Questo piano è già in uso dalla data scelta.</p>
-            </section>
-          )}
+          {detail.extraction && <PlanSummary key={detail.id} extraction={detail.extraction} />}
         </div>
-      ) : openingId ? (
-        <p className="loading-inline" role="status">Apertura del PDF…</p>
-      ) : (
-        <div className="import-start-grid">
-          <details className="diet-upload-details" open={imports.length === 0}>
-            <summary>Importa una nuova dieta</summary>
+      ) : loading || openingId ? (
+        <p className="loading-inline" role="status">Caricamento della dieta…</p>
+      ) : null}
+      <div className="diet-secondary" id="diet-other-pdfs">
+          <details className="diet-upload-details" open={!loading && !detail && imports.length === 0}>
+            <summary>{detail ? 'Carica un altro PDF' : 'Carica il PDF della dieta'}</summary>
           <form className="import-upload-card" onSubmit={uploadAndAnalyze}>
-            <h3>Nuovo piano</h3>
+            <h3>Il PDF del professionista</h3>
             <label htmlFor="plan-pdf-file">File PDF</label>
             <input
               id="plan-pdf-file"
               type="file"
               accept="application/pdf,.pdf"
               onChange={handleFileChange}
-              disabled={busy !== null}
+              disabled={busy !== null || loading || openingId !== null}
             />
             {selectedFile && <p className="field-hint">{selectedFile.name} · {formatBytes(selectedFile.size)}</p>}
-            <button className="primary-button" type="submit" disabled={busy !== null || !selectedFile}>
+            <button className="primary-button" type="submit" disabled={busy !== null || loading || openingId !== null || !selectedFile}>
               {busy === 'upload' ? 'Caricamento…' : 'Carica e analizza'}
             </button>
             <p className="privacy-note">
-              Il PDF resta salvato in privato e viene inviato a OpenRouter per l’analisi. La richiesta limita l’inferenza a endpoint ZDR e seleziona il parser PDF nativo. Le impostazioni Plugin devono lasciare `file-parser` non forzato o impostarlo sul parser nativo; ZDR non copre i backend dei plugin. Massimo 15 MB.
+              Premendo “Carica e analizza” acconsenti a inviare il PDF a un modello AI tramite OpenRouter. Il documento viene conservato in privato. Solo PDF, massimo 15 MB.
             </p>
+            <details className="diet-technical-details">
+              <summary>Dettagli sul trattamento AI</summary>
+              <p>La richiesta usa solo endpoint a conservazione zero (ZDR) e il parser PDF nativo. Le impostazioni Plugin dell’account OpenRouter devono lasciare <code>file-parser</code> non forzato o impostarlo su <code>native</code>: ZDR non copre i backend dei plugin.</p>
+            </details>
           </form>
           </details>
 
-          <section className="import-history-card" aria-labelledby="import-history-title">
-            <h3 id="import-history-title">PDF caricati</h3>
+          <details className="import-history-card">
+            <summary>PDF caricati ({imports.length})</summary>
             {imports.length === 0 ? (
               <p className="empty-state">Non hai ancora caricato PDF.</p>
             ) : (
@@ -342,7 +342,7 @@ export function PlanImportWorkspace() {
                       type="button"
                       className="import-history-item"
                       onClick={() => void openImport(item.id)}
-                      disabled={busy !== null}
+                      disabled={busy !== null || loading || openingId !== null}
                     >
                       <span>
                         <strong>{item.originalName}</strong>
@@ -356,15 +356,15 @@ export function PlanImportWorkspace() {
                 ))}
               </ul>
             )}
-          </section>
+          </details>
         </div>
-      )}
     </section>
   )
 }
 
 function PlanSummary({ extraction }: { extraction: PlanReview }) {
   const days = [...extraction.days].sort((left, right) => left.dayIndex - right.dayIndex)
+  const [selectedDay, setSelectedDay] = useState(days[0]?.dayIndex ?? 0)
   const equivalences = extraction.equivalences.filter((equivalence) => !equivalence.removed)
   const foodCount = days.reduce(
     (total, day) =>
@@ -373,29 +373,31 @@ function PlanSummary({ extraction }: { extraction: PlanReview }) {
   )
   return (
     <section className="plan-summary" aria-labelledby="plan-summary-title">
-      <h3 id="plan-summary-title">Cosa ha letto l’AI</h3>
+      <h3 id="plan-summary-title">Pasti e varianti dal PDF</h3>
       <p className="plan-summary-counts">
         {days.length} giorni · {foodCount} alimenti
         {equivalences.length > 0 ? ` · ${equivalences.length} equivalenze` : ''}
       </p>
+      <p className="summary-note">Riepilogo di sola lettura: Mealio non aggiunge alimenti, quantità o varianti. Controlla gli avvisi e confronta il PDF originale.</p>
       <WarningList warnings={extraction.warnings} />
-      {days.map((day) => {
-        const meals = [...day.meals].sort((left, right) => SLOT_ORDER.indexOf(left.slot) - SLOT_ORDER.indexOf(right.slot))
-        const warningCount = meals.reduce((total, meal) => total + mealWarnings(meal).length, 0)
-        return (
-          <details className="summary-day" key={day.dayIndex} open={day.dayIndex === 0}>
-            <summary>
-              {DAY_LABELS[day.dayIndex]}
-              {warningCount > 0 && (
-                <span className="summary-day-warnings">{warningCount === 1 ? '1 avviso' : `${warningCount} avvisi`}</span>
-              )}
-            </summary>
-            <div className="summary-meals">
-              {meals.map((meal) => <MealSummary key={meal.slot} meal={meal} />)}
-            </div>
-          </details>
-        )
-      })}
+      <div className="diet-day-picker" role="group" aria-label="Giorno della dieta">
+        {days.map((day) => {
+          const warnings = day.meals.reduce((total, meal) => total + mealWarnings(meal).length, 0)
+          return (
+            <button className="secondary-button" type="button" key={day.dayIndex} aria-pressed={selectedDay === day.dayIndex} onClick={() => setSelectedDay(day.dayIndex)}>
+              {DAY_LABELS[day.dayIndex]}{warnings > 0 ? ` · ${warnings} avvisi` : ''}
+            </button>
+          )
+        })}
+      </div>
+      {days.filter((day) => day.dayIndex === selectedDay).map((day) => (
+        <section className="diet-selected-day" key={day.dayIndex} aria-label={DAY_LABELS[day.dayIndex]}>
+          <h4>{DAY_LABELS[day.dayIndex]}</h4>
+          <div className="summary-meals">
+            {[...day.meals].sort((left, right) => SLOT_ORDER.indexOf(left.slot) - SLOT_ORDER.indexOf(right.slot)).map((meal) => <MealSummary key={meal.slot} meal={meal} />)}
+          </div>
+        </section>
+      ))}
       {equivalences.length > 0 && (
         <details className="summary-day">
           <summary>Equivalenze</summary>
@@ -467,11 +469,11 @@ function MealSummary({ meal }: { meal: Meal }) {
         <p className="summary-missing">Nessun alimento letto.</p>
       ) : (
         <>
-          {shared.length > 0 && combinations.length > 0 && <p className="summary-note">In tutte le combinazioni:</p>}
+          {shared.length > 0 && combinations.length > 0 && <p className="summary-note">In tutte le varianti:</p>}
           {shared.length > 0 && <FoodRows components={shared} />}
           {combinations.length > 0 && (
             <>
-              <p className="summary-note">{combinations.length} combinazioni a scelta:</p>
+              <p className="summary-note">{combinations.length} varianti consentite:</p>
               <ol className="summary-combinations">
                 {combinations.map((combination) => (
                   <li key={combination}>
@@ -488,6 +490,19 @@ function MealSummary({ meal }: { meal: Meal }) {
       )}
       {meal.review.notes && <p className="summary-note">{meal.review.notes}</p>}
       <WarningList warnings={mealWarnings(meal)} />
+      <details className="diet-provenance">
+        <summary>Riferimenti al PDF</summary>
+        {meal.source.page !== null && <p>Pagina {meal.source.page}</p>}
+        {meal.source.quote && <blockquote>{meal.source.quote}</blockquote>}
+        {components.map((component, index) => (
+          <div key={index}>
+            <strong>{component.review.label}</strong>
+            {component.source?.page != null && <span> · pagina {component.source.page}</span>}
+            {component.source?.quote && <blockquote>{component.source.quote}</blockquote>}
+            {component.review.notes && <p>{component.review.notes}</p>}
+          </div>
+        ))}
+      </details>
     </div>
   )
 }
@@ -549,6 +564,18 @@ function EquivalenceSummary({ equivalence, extraction }: { equivalence: Equivale
       )}
       {equivalence.review.note && <p className="summary-note">{equivalence.review.note}</p>}
       <WarningList warnings={warnings} />
+      <details className="diet-provenance">
+        <summary>Riferimenti al PDF</summary>
+        {equivalence.source?.page != null && <p>Pagina {equivalence.source.page}</p>}
+        {equivalence.source?.quote && <blockquote>{equivalence.source.quote}</blockquote>}
+        {items.map((item, index) => (
+          <div key={index}>
+            <strong>{item.review.label}</strong>
+            {item.source?.page != null && <span> · pagina {item.source.page}</span>}
+            {item.source?.quote && <blockquote>{item.source.quote}</blockquote>}
+          </div>
+        ))}
+      </details>
     </li>
   )
 }
