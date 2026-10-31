@@ -53,6 +53,7 @@ export function TodayDiary({ date, onDateChange }: {
   const busy = diary.loading || diary.saving || acting
   const readOnly = selectedDate !== today
   const future = selectedDate > today
+  const hasDiet = Boolean(day?.validVersion || day?.plannedVersion)
   const canRecord = Boolean(day?.snapshotId) && !readOnly && !busy && !diary.conflict
   const error = diary.error || (actionError?.date === selectedDate ? actionError.message : '')
 
@@ -127,17 +128,17 @@ export function TodayDiary({ date, onDateChange }: {
       </nav>
 
       <div className="calendar-feedback" aria-live="polite">
-        {!diary.online && <p>Offline · {day ? 'copia salvata sul dispositivo' : 'collegati per caricare questa data'}.</p>}
-        {diary.pendingCount > 0 && <p>{diary.pendingCount} {diary.pendingCount === 1 ? 'registrazione salvata sul dispositivo, da sincronizzare' : 'registrazioni salvate sul dispositivo, da sincronizzare'}.</p>}
         {diary.loading && <p role="status">Caricamento della giornata…</p>}
         {(diary.saving || acting) && !diary.loading && <p role="status">Salvataggio in corso…</p>}
         {error && !diary.conflict && <p className="calendar-error" role="alert">{error}</p>}
-        {(error || diary.pendingCount > 0) && !diary.conflict && (
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => void perform(() => diary.retrySync())}>Riprova caricamento e sincronizzazione</button>
+        {error && !diary.conflict && (
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => {
+            if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.reload())
+          }}>Riprova caricamento</button>
         )}
         {diary.conflict && (
           <div className="calendar-conflict" role="alert">
-            <p>Check-in diversi sul server. Le modifiche locali sono conservate: scegli quali mantenere.</p>
+            <p>Il diario è stato modificato altrove. Le tue modifiche restano aperte in questa pagina: scegli quali mantenere.</p>
             <div className="calendar-actions">
               <button type="button" className="secondary-button" disabled={busy} onClick={() => {
                 if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.resolveConflict('local'))
@@ -146,63 +147,72 @@ export function TodayDiary({ date, onDateChange }: {
                 if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.resolveConflict('server'))
               }}>Mantieni quelli sul server</button>
             </div>
+            {error && <p className="calendar-error" role="alert">{error}</p>}
           </div>
         )}
       </div>
 
-      <div className="calendar-day-heading">
-        <p className="calendar-mode">{future ? 'Anteprima · sola lettura' : readOnly ? 'Storico · sola lettura' : 'I pasti di oggi'}</p>
-        {day && day.meals.length > 0 && !readOnly && (
-          <button type="button" className="primary-button" disabled={!canRecord} onClick={() => {
-            if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.followAll())
-          }}>Tutto seguito</button>
-        )}
-      </div>
-
-      {day ? (
+      {day ? day.meals.length > 0 ? (
         <>
+          <div className="calendar-day-heading">
+            <p className="calendar-mode">{future ? 'Pasti pianificati · sola lettura' : readOnly ? 'Storico · sola lettura' : 'I pasti di oggi'}</p>
+            {!readOnly && (
+              <button type="button" className="primary-button" disabled={!canRecord} onClick={() => {
+                if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.followAll())
+              }}>Tutto seguito</button>
+            )}
+          </div>
           <div className="calendar-plan">
             <div className="calendar-plan-line">
-              <p>{day.weekStatus === 'confirmed' ? 'Settimana confermata' : 'Piano originale · da confermare'}</p>
-              <Link to="/settimana" search={{ start: weekStart }} aria-label="Pianifica la settimana">Pianifica →</Link>
+              <p>{day.meals.some((meal) => meal.checkIn !== null) ? 'Pasti e registrazioni salvate' : 'Giornata aggiunta al calendario'}</p>
+              <Link to="/settimana" search={{ start: weekStart, date: selectedDate }}>Rivedi in Settimana →</Link>
             </div>
             {day.plannedVersion?.id !== day.validVersion?.id && <p className="calendar-warning">La pianificazione usa una dieta diversa da quella valida per questa data. Rivedi la settimana se vuoi aggiornarla.</p>}
           </div>
-
-          {day.meals.length > 0 ? (
-            <>
-              <ol className="calendar-meals">
-                {day.meals.map((meal) => (
-                  <DiaryMeal key={`${day.date}-${meal.plan.slot}`} meal={meal} readOnly={readOnly} disabled={!canRecord}
-                    record={(followed, note) => perform(() => diary.record(meal.plan.slot, followed, note))} />
-                ))}
-              </ol>
-            <details className="calendar-provenance">
-              <summary>Versione e origine del piano</summary>
-              <div>
-                <p>Piano della giornata: <strong>{day.plannedVersion?.label ?? (day.plannedVersion ? `Versione ${day.plannedVersion.id}` : 'Nessuna versione disponibile')}</strong>.</p>
-                {day.plannedVersion?.id !== day.validVersion?.id && (
-                  <p>La versione valida per questa data è {day.validVersion?.label ?? (day.validVersion ? `Versione ${day.validVersion.id}` : 'non disponibile')}; il piano mostrato conserva la versione della pianificazione.</p>
-                )}
-                <p>I pasti già registrati conservano il piano della prima registrazione, anche se la pianificazione cambia.</p>
-                <Link to="/dieta">Consulta o cambia la dieta →</Link>
-              </div>
-            </details>
-              <p className="calendar-help calendar-status-help">Non registrato non significa non seguito. Le note si salvano esplicitamente; l’orario del check-in è automatico (Europe/Rome).</p>
-            </>
-          ) : (
-            <div className="calendar-empty">
-              <p>Nessun pasto pianificato per questa data. Sono mostrati solo i pasti presenti nel piano.</p>
-              <Link to="/dieta">Consulta o attiva una dieta →</Link>
-              <Link to="/settimana" search={{ start: weekStart }}>Apri la pianificazione →</Link>
+          <ol className="calendar-meals">
+            {day.meals.map((meal) => (
+              <DiaryMeal key={`${day.date}-${meal.plan.slot}`} meal={meal} readOnly={readOnly} disabled={!canRecord}
+                record={(followed, note) => perform(() => diary.record(meal.plan.slot, followed, note))} />
+            ))}
+          </ol>
+          <details className="calendar-provenance">
+            <summary>Versione e origine del piano</summary>
+            <div>
+              <p>Piano della giornata: <strong>{day.plannedVersion?.label ?? (day.plannedVersion ? `Versione ${day.plannedVersion.id}` : 'Nessuna versione disponibile')}</strong>.</p>
+              {day.plannedVersion?.id !== day.validVersion?.id && (
+                <p>La versione valida per questa data è {day.validVersion?.label ?? (day.validVersion ? `Versione ${day.validVersion.id}` : 'non disponibile')}; il piano mostrato conserva la versione della pianificazione.</p>
+              )}
+              <p>I pasti già registrati conservano il piano della prima registrazione, anche se la pianificazione cambia.</p>
+              <Link to="/dieta">Consulta o cambia la dieta →</Link>
             </div>
-          )}
+          </details>
+          <p className="calendar-help calendar-status-help">Non registrato non significa non seguito. Le note si salvano esplicitamente; l’orario del check-in è automatico (Europe/Rome).</p>
         </>
+      ) : (
+        <div className="calendar-empty">
+          <h2>{selectedDate < today ? 'Nessun pasto nello storico' : hasDiet ? 'Giornata da pianificare' : 'Nessuna dieta per questa data'}</h2>
+          <p>
+            {selectedDate < today
+              ? 'Non ci sono pasti aggiunti o registrazioni per questa data.'
+              : hasDiet
+                ? 'Scegli i pasti in Settimana e aggiungi la giornata al calendario. Qui compaiono solo le giornate aggiunte e le registrazioni già salvate.'
+                : 'Attiva una dieta prima di scegliere i pasti da aggiungere al calendario.'}
+          </p>
+          {selectedDate < today ? (
+            <button className="primary-button" type="button" onClick={() => onDateChange(null)}>Torna a oggi</button>
+          ) : hasDiet ? (
+            <Link className="primary-button" to="/settimana" search={{ start: weekStart, date: selectedDate }}>Pianifica la giornata</Link>
+          ) : (
+            <Link className="primary-button" to="/dieta">Apri Dieta</Link>
+          )}
+        </div>
       ) : !diary.loading && (
         <div className="calendar-empty">
-          <p>{diary.online ? 'Giornata non disponibile. Riprova a caricarla.' : 'Questa giornata non è disponibile sul dispositivo. Puoi scegliere un’altra data o tornare a oggi.'}</p>
+          <p>Giornata non disponibile. Riprova a caricarla.</p>
           <button type="button" className="secondary-button" disabled={busy} onClick={() => {
-            if (selectedDate === today) void perform(() => diary.retrySync())
+            if (selectedDate === today) {
+              if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.reload())
+            }
             else onDateChange(null)
           }}>{selectedDate === today ? 'Ricarica oggi' : 'Torna a oggi'}</button>
           <Link to="/dieta">Vai alla dieta →</Link>

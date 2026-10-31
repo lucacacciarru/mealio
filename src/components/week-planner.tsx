@@ -1,21 +1,22 @@
-import { Fragment, useEffect, useState } from 'react'
-import type { SyntheticEvent } from 'react'
-import type { PlanComponentState, PlanSlot } from '../db/schema'
+import { Fragment, useEffect, useId, useState } from 'react'
+import type { ReactNode, SyntheticEvent } from 'react'
+import { Link, useRouter } from '@tanstack/react-router'
+import type { PlanSlot } from '../db/schema'
 import type { WeekDayView, WeekMealChoices, WeekMealView, WeekView } from '../server/weeks'
 import { apiRequest } from './api'
-import { FoodText, SLOT_LABELS } from './plan-text'
+import { FoodText, printedAmount, SLOT_LABELS, type FoodFields } from './plan-text'
 
 const FREE_MEAL_DESCRIPTION_MAX_LENGTH = 200
 
 type WeekAction =
-  | { action: 'confirm' }
+  | { action: 'confirmDay'; date: string }
   | { action: 'refresh' }
   | { action: 'swapDays'; dates: [string, string] }
   | { action: 'moveMeal'; slot: PlanSlot; dates: [string, string] }
   | { action: 'setChoices'; date: string; slot: PlanSlot; choices: WeekMealChoices }
   | { action: 'setFreeMeal'; date: string; slot: PlanSlot; description: string | null }
   | { action: 'clearFreeMeal' }
-type RunAction = (action: WeekAction, success: string) => Promise<void>
+type RunAction = (action: WeekAction, success: string) => Promise<boolean>
 
 function formatDay(date: string, options: Intl.DateTimeFormatOptions = {}): string {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('it-IT', {
@@ -30,30 +31,36 @@ function versionName(version: { id: number; label: string | null }): string {
   return version.label ?? `Versione ${version.id}`
 }
 
-// Plain-text food for <option> labels, mirroring FoodText.
-function foodLine(food: {
-  label: string
-  quantityText: string | null
-  unitText: string | null
-  state?: PlanComponentState
-}): string {
-  const text = [food.label, food.quantityText?.trim(), food.unitText?.trim()].filter(Boolean).join(' ')
-  if (food.state === 'raw') return `${text} a crudo`
-  if (food.state === 'cooked') return `${text} a cotto`
-  return text
-}
+// Decorative icons: the buttons they sit in carry the text.
+const CHECK_ICON = (
+  <svg className="choice-chip-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m3.5 8.5 3 3 6-7" />
+  </svg>
+)
+const SWAP_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="5" width="18" height="16" rx="3" />
+    <path d="M3 10h18M8 3v4m8-4v4m-7 8h6m0 0-2-2m2 2-2 2" />
+  </svg>
+)
 
-export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | null; onWeekChange: (start: string | null) => void }) {
+export function WeekPlanner({ weekStart, selectedDate, onDayChange, onWeekChange }: {
+  weekStart: string | null
+  selectedDate: string | null
+  onDayChange: (date: string) => void
+  onWeekChange: (start: string | null) => void
+}) {
   const [week, setWeek] = useState<WeekView | null>(null)
   const [pending, setPending] = useState<'load' | 'action' | null>('load')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loadRevision, setLoadRevision] = useState(0)
 
+  const router = useRouter()
   useEffect(() => {
     let cancelled = false
     setPending('load')
+    setWeek(null)
     setError('')
     setNotice('')
     void apiRequest<WeekView>(weekStart ? `/api/weeks?start=${encodeURIComponent(weekStart)}` : '/api/weeks')
@@ -71,9 +78,16 @@ export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | n
     }
   }, [weekStart, loadRevision])
 
+  // Changes happen inside the meal cards, so notices float over the page and
+  // leave on their own instead of shifting it.
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  async function runAction(action: WeekAction, success: string) {
-    if (!week || pending !== null) return
+  async function runAction(action: WeekAction, success: string): Promise<boolean> {
+    if (!week || pending !== null) return false
     setPending('action')
     setError('')
     setNotice('')
@@ -86,39 +100,40 @@ export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | n
         }),
       )
       setNotice(success)
+      return true
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Modifica non riuscita.')
+      return false
     } finally {
       setPending(null)
     }
   }
 
+  async function openGroceries() {
+    if (!week || pending !== null) return
+    await router.navigate({ to: '/spesa', search: { start: week.weekStart } })
+  }
+
   const busy = pending !== null
   const selectedDay = week?.days.find((day) => day.date === selectedDate)
-    ?? week?.days.find((day) => day.date === week.today)
+    ?? week?.days.find((day) => !day.past)
     ?? week?.days[0]
+  const plannedDays = week?.days.filter((day) => day.plannedAt !== null).length ?? 0
 
   return (
-    <section className="week-planner" id="settimana" aria-labelledby="week-planner-title">
+    <section className="week-planner" id="settimana" aria-labelledby="week-planner-title" aria-busy={busy}>
       <div className="workspace-heading">
         <div>
-          <span className="eyebrow">Settimana</span>
-          <h2 id="week-planner-title">{week ? `Settimana ${week.isoWeek} del ${week.isoYear}` : 'La tua settimana'}</h2>
-          {week && (
-            <p>
-              {formatDay(week.weekStart, week.weekStart.slice(0, 4) === week.weekEnd.slice(0, 4) ? {} : { year: 'numeric' })}
-              {' – '}
-              {formatDay(week.weekEnd, { year: 'numeric' })}
-            </p>
-          )}
+          <h2 id="week-planner-title">
+            {week
+              ? `${formatDay(week.weekStart)} – ${formatDay(week.weekEnd, { year: 'numeric' })}`
+              : 'Caricamento della settimana…'}
+          </h2>
         </div>
         {week && (
           <nav className="week-nav" aria-label="Cambia settimana">
-            <button className="secondary-button" type="button" onClick={() => onWeekChange(week.previousWeekStart)} disabled={busy}>
-              ← Precedente
-            </button>
-            <button className="secondary-button" type="button" onClick={() => onWeekChange(week.nextWeekStart)} disabled={busy}>
-              Successiva →
+            <button className="secondary-button" type="button" aria-label="Settimana precedente" onClick={() => onWeekChange(week.previousWeekStart)} disabled={busy}>
+              ←
             </button>
             <button
               className="secondary-button"
@@ -126,54 +141,80 @@ export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | n
               onClick={() => onWeekChange(null)}
               disabled={busy || (week.today >= week.weekStart && week.today <= week.weekEnd)}
             >
-              Settimana in corso
+              Questa settimana
+            </button>
+            <button className="secondary-button" type="button" aria-label="Settimana successiva" onClick={() => onWeekChange(week.nextWeekStart)} disabled={busy}>
+              →
             </button>
           </nav>
         )}
       </div>
 
-      {error && (
+      {error && !week && (
         <div role="alert">
           <p className="message error-message">{error}</p>
           <button className="secondary-button" type="button" disabled={busy} onClick={() => setLoadRevision((revision) => revision + 1)}>Riprova caricamento</button>
         </div>
       )}
-      {notice && <p className="message success-message" role="status">{notice}</p>}
       {pending === 'load' && <p className="loading-inline" role="status">Caricamento della settimana…</p>}
+      <div className="planner-feedback" aria-live="polite">
+        {error && week && (
+          <div className="planner-toast planner-toast-error" role="alert">
+            <p>{error}</p>
+            <button className="text-button" type="button" disabled={busy} onClick={() => setLoadRevision((revision) => revision + 1)}>Ricarica la settimana</button>
+          </div>
+        )}
+        {notice && <p className="planner-toast">{notice}</p>}
+      </div>
 
       {week && (
         <div className="week-body">
           <WeekStatus week={week} busy={busy} runAction={runAction} />
-          {week.status === 'confirmed' && (
-            <FreeMealPanel
-              key={`${week.weekStart}:${JSON.stringify(week.freeMeal)}`}
-              week={week}
-              busy={busy}
-              runAction={runAction}
-            />
+          {week.days.some((day) => day.meals.length > 0) && (
+            <div className="planner-toolbar">
+              <p>
+                <strong>{plannedDays} di {week.days.filter((day) => day.meals.length > 0).length} giorni nel calendario.</strong>
+                {' '}Scegli i pasti, poi aggiungi ogni giornata quando è pronta.
+              </p>
+              <button className="secondary-button" type="button" onClick={() => void openGroceries()} disabled={busy}>
+                Vai alla spesa →
+              </button>
+            </div>
           )}
+          {week.days.some((day) => day.meals.length > 0) && (
+            <>
           <div className="planner-day-tabs" role="group" aria-label="Giorni da pianificare">
             {week.days.map((day) => (
               <button
                 key={day.date}
                 className="planner-day-tab"
                 type="button"
-                aria-label={`${day.dayName} ${formatDay(day.date)}${day.past ? ', passato' : ''}`}
+                aria-label={`${day.dayName} ${formatDay(day.date)}, ${day.plannedAt !== null ? 'nel calendario' : 'da pianificare'}${day.past ? ', passato' : ''}`}
                 aria-pressed={selectedDay?.date === day.date}
-                onClick={() => setSelectedDate(day.date)}
+                data-planned={day.plannedAt !== null}
+                onClick={() => onDayChange(day.date)}
                 disabled={busy}
               >
                 <span>{day.dayName.slice(0, 3)}</span>
                 <strong>{Number(day.date.slice(8))}</strong>
-                {day.date === week.today && <small>Oggi</small>}
-                {day.past && <small>Passato</small>}
+                <small>{day.plannedAt !== null ? '✓' : day.date === week.today ? 'Oggi' : '—'}</small>
               </button>
             ))}
           </div>
-          <p className="planner-summary">Apri un giorno e modifica solo i pasti che vuoi organizzare diversamente.</p>
-          <ol className="week-days">
-            {selectedDay && <DayCard key={selectedDay.date} week={week} day={selectedDay} busy={busy} runAction={runAction} />}
-          </ol>
+          {selectedDay && <DayCard key={selectedDay.date} week={week} day={selectedDay} busy={busy} runAction={runAction} />}
+            </>
+          )}
+          {week.days.some((day) => day.meals.length > 0) && week.weekEnd >= week.today && (
+            <details className="week-optional">
+              <summary>{week.freeMeal ? 'Il tuo pasto libero' : 'Aggiungi un pasto libero (facoltativo)'}</summary>
+              <FreeMealPanel
+                key={`${week.weekStart}:${JSON.stringify(week.freeMeal)}`}
+                week={week}
+                busy={busy}
+                runAction={runAction}
+              />
+            </details>
+          )}
         </div>
       )}
     </section>
@@ -181,70 +222,31 @@ export function WeekPlanner({ weekStart, onWeekChange }: { weekStart: string | n
 }
 
 function WeekStatus({ week, busy, runAction }: { week: WeekView; busy: boolean; runAction: RunAction }) {
-  const weekOver = week.weekEnd < week.today
-  if (week.status === 'unconfirmed') {
-    if (!week.days.some((day) => day.meals.length > 0)) {
-      return (
-        <section className="week-status" role="status">
-          <h3>Nessun piano per queste date</h3>
-          <p>Nessuna versione del piano è valida in questa settimana. Attiva un piano dal PDF per pianificarla.</p>
-        </section>
-      )
-    }
+  if (!week.days.some((day) => day.meals.length > 0)) {
     return (
-      <section className="week-status week-status-pending">
-        <h3>Settimana non confermata</h3>
-        {weekOver ? (
-          <p>Per questa settimana è valso il piano originale.</p>
-        ) : (
-          <>
-            <p>
-              Finché non la confermi vale il piano originale. Dopo la conferma puoi scambiare giorni e pasti, scegliere
-              le sostituzioni previste dal piano e il pasto libero.
-            </p>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void runAction({ action: 'confirm' }, 'Settimana confermata.')}
-              disabled={busy}
-            >
-              Conferma la settimana
-            </button>
-          </>
-        )}
+      <section className="week-status" role="status">
+        <h3>Parti dalla tua dieta</h3>
+        <p>Carica il PDF e usa i pasti letti dalla dieta per organizzare questa settimana.</p>
+        <Link className="text-button" to="/dieta">Carica la dieta →</Link>
       </section>
     )
   }
-
   const needsRefresh = week.days.some(
     (day) => !day.past && day.validVersion !== null && day.validVersion.id !== day.plannedVersion?.id,
   )
+  if (!needsRefresh) return null
   return (
-    <section className="week-status week-status-confirmed">
-      <h3>Settimana confermata</h3>
-      <p>
-        {week.confirmedAt !== null &&
-          `Confermata il ${new Date(week.confirmedAt).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}. `}
-        {weekOver
-          ? 'La settimana è conclusa: i pasti restano come pianificati.'
-          : 'Puoi modificare i giorni da oggi in poi; i giorni passati restano come pianificati.'}
-      </p>
-      {needsRefresh && (
-        <div className="week-refresh">
-          <p className="week-warning">
-            Da alcune date vale una versione più recente del piano. Aggiornando, quei giorni ripartono dal nuovo piano e
-            perdono scambi e sostituzioni; il pasto libero resta.
-          </p>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void runAction({ action: 'refresh' }, 'Giorni aggiornati al piano valido.')}
-            disabled={busy}
-          >
-            Aggiorna al piano valido
-          </button>
-        </div>
-      )}
+    <section className="week-status">
+      <h3>Hai una dieta più recente</h3>
+      <p>I pasti salvati non sono cambiati. Aggiornando i giorni futuri, perderai le loro varianti e i loro scambi; il pasto libero resta.</p>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => void runAction({ action: 'refresh' }, 'Pasti aggiornati alla nuova dieta.')}
+        disabled={busy}
+      >
+        Usa la nuova dieta
+      </button>
     </section>
   )
 }
@@ -337,9 +339,11 @@ function FreeMealPanel({ week, busy, runAction }: { week: WeekView; busy: boolea
 }
 
 function DayCard({ week, day, busy, runAction }: { week: WeekView; day: WeekDayView; busy: boolean; runAction: RunAction }) {
-  // Changes need a confirmed week and apply from today on, swapping only with
-  // days that use the same plan version.
-  const changeable = week.status === 'confirmed' && !day.past && day.plannedVersion !== null
+  const [swapping, setSwapping] = useState(false)
+  const [editingSlot, setEditingSlot] = useState<PlanSlot | null>(null)
+  const id = useId()
+  // Past days stay unchanged; swaps stay within the same plan version.
+  const changeable = !day.past && day.plannedVersion !== null
   const targets = changeable
     ? week.days.filter(
         (other) => other.date !== day.date && !other.past && other.plannedVersion?.id === day.plannedVersion?.id,
@@ -354,51 +358,91 @@ function DayCard({ week, day, busy, runAction }: { week: WeekView; day: WeekDayV
       ? `Pianificato con «${versionName(day.plannedVersion)}»: per questa data ora vale «${versionName(day.validVersion)}».`
       : null
   return (
-    <li className="week-day">
-      <details open>
-        <summary>
-          <span>
+    <section className="week-day" aria-labelledby={`${id}-title`}>
+      <header className="week-day-heading">
+        <div className="week-day-title">
+          <h3 id={`${id}-title`}>
             {day.dayName} {formatDay(day.date)}
-          </span>
+          </h3>
           {day.date === week.today && <span className="week-tag week-tag-today">Oggi</span>}
           {day.past && <span className="week-tag">Passato</span>}
-        </summary>
-        <div className="week-day-body">
-          {day.plannedVersion && <p className="week-day-version">Piano: {versionName(day.plannedVersion)}</p>}
-          {staleNote && <p className="week-warning">{staleNote}</p>}
-          {day.meals.length === 0 ? (
-            <p className="summary-missing">Nessun piano valido in questa data.</p>
+          <span className={day.plannedAt !== null ? 'week-tag week-tag-planned' : 'week-tag'}>
+            {day.plannedAt !== null ? 'Nel calendario' : 'Bozza'}
+          </span>
+        </div>
+        {/* Plan weights are raw unless the plan states otherwise; foods flag the exceptions. */}
+        {day.meals.length > 0 && <p className="week-day-note">Pesi a crudo, salvo dove indicato.</p>}
+        {targets.length > 0 && (
+          <button
+            className="meal-card-action week-day-swap"
+            type="button"
+            aria-expanded={swapping}
+            aria-controls={`${id}-swap`}
+            onClick={() => setSwapping(!swapping)}
+          >
+            {SWAP_ICON}
+            Scambia la giornata
+          </button>
+        )}
+      </header>
+      {swapping && targets.length > 0 && (
+        <SwapChoices
+          id={`${id}-swap`}
+          label="Scambia tutti i pasti con"
+          targets={targets}
+          busy={busy}
+          onSwap={async (target) => {
+            if (await runAction({ action: 'swapDays', dates: [day.date, target] }, 'Giorni scambiati.')) setSwapping(false)
+          }}
+        />
+      )}
+      {staleNote && <p className="week-warning">{staleNote}</p>}
+      {day.meals.length === 0 ? (
+        <p className="summary-missing">Nessun piano valido in questa data.</p>
+      ) : (
+        <ol className="week-meals">
+          {day.meals.map((meal) => (
+            <MealCard
+              key={meal.slot}
+              day={day}
+              meal={meal}
+              changeable={changeable}
+              targets={targets}
+              busy={busy}
+              runAction={runAction}
+              editing={editingSlot === meal.slot}
+              onEdit={() => setEditingSlot(editingSlot === meal.slot ? null : meal.slot)}
+            />
+          ))}
+        </ol>
+      )}
+      {changeable && day.meals.length > 0 && (
+        <div className="day-planning-action">
+          <div>
+            <h4>{day.plannedAt !== null ? 'Giornata aggiunta' : day.unresolvedChoices > 0 ? 'Completa le scelte' : 'La giornata è pronta'}</h4>
+            <p>
+              {day.plannedAt !== null
+                ? 'Questi pasti sono nel calendario e nella spesa. Una modifica riapre la bozza.'
+                : day.unresolvedChoices > 0
+                  ? `${day.unresolvedChoices} ${day.unresolvedChoices === 1 ? 'scelta da completare' : 'scelte da completare'}. La bozza non compare nel calendario né nella spesa.`
+                  : 'Controlla i pasti e aggiungili al calendario. La spesa userà solo le giornate aggiunte.'}
+            </p>
+          </div>
+          {day.plannedAt === null ? (
+            <button
+              className="primary-button"
+              type="button"
+              disabled={busy || day.unresolvedChoices > 0}
+              onClick={() => void runAction({ action: 'confirmDay', date: day.date }, 'Giornata aggiunta al calendario e alla spesa.')}
+            >
+              Aggiungi al calendario
+            </button>
           ) : (
-            <ul className="week-meals">
-              {day.meals.map((meal) => (
-                <MealCard
-                  key={meal.slot}
-                  day={day}
-                  meal={meal}
-                  changeable={changeable}
-                  targets={targets}
-                  busy={busy}
-                  runAction={runAction}
-                />
-              ))}
-            </ul>
-          )}
-          {targets.length > 0 && (
-            <details className="week-edit">
-              <summary>Scambia il giorno</summary>
-              <SwapForm
-                id={`swap-day-${day.date}`}
-                label="Scambia tutti i pasti con"
-                submitLabel="Scambia i giorni"
-                targets={targets}
-                busy={busy}
-                onSwap={(target) => runAction({ action: 'swapDays', dates: [day.date, target] }, 'Giorni scambiati.')}
-              />
-            </details>
+            <Link className="text-button" to="/calendario" search={{ date: day.date }}>Vedi nel calendario →</Link>
           )}
         </div>
-      </details>
-    </li>
+      )}
+    </section>
   )
 }
 
@@ -409,6 +453,8 @@ function MealCard({
   targets,
   busy,
   runAction,
+  editing,
+  onEdit,
 }: {
   day: WeekDayView
   meal: WeekMealView
@@ -416,60 +462,359 @@ function MealCard({
   targets: WeekDayView[]
   busy: boolean
   runAction: RunAction
+  editing: boolean
+  onEdit: () => void
 }) {
-  const canSubstitute =
+  const id = useId()
+  const wholeMeal = meal.mealOptions.some((option) => option.key === meal.mealChoice)
+  const needsChoice = !meal.free && !wholeMeal && (
+    (meal.combinations.length > 0 && meal.combinationChoice === null) ||
+    meal.rows.some((row) =>
+      (row.combination === null || row.combination === meal.combinationChoice) &&
+      row.components.length > 1 && row.choice === null,
+    )
+  )
+  const canChoose =
     changeable &&
     !meal.free &&
     (meal.combinations.length > 0 || meal.mealOptions.length > 0 || meal.rows.some((row) => row.options.length > 0))
+  const canSwap = targets.length > 0
   return (
-    <li className={meal.free ? 'week-meal week-meal-free' : 'week-meal'}>
-      <div className="week-meal-heading">
-        <h4>{SLOT_LABELS[meal.slot]}</h4>
+    <li className={meal.free ? 'meal-card meal-card-free' : 'meal-card'} aria-labelledby={`${id}-title`}>
+      <div className="meal-card-content">
+        <header className="meal-card-heading">
+          <h4 id={`${id}-title`}>{SLOT_LABELS[meal.slot]}</h4>
+          {meal.free && <span className="week-tag week-tag-free">Pasto libero</span>}
+          {!meal.free && wholeMeal && <span className="week-tag week-tag-variant">Pasto sostituito</span>}
+          {!meal.free && !wholeMeal && meal.combinationChoice !== null && (
+            <span className="week-tag week-tag-variant">{meal.combinationChoice}</span>
+          )}
+          {meal.sourceDayIndex !== day.dayIndex && (
+            <span className="week-tag">Da {meal.sourceDayName.toLowerCase()}</span>
+          )}
+        </header>
         {meal.free ? (
-          <span className="week-tag week-tag-free">Pasto libero</span>
+          <p className="meal-card-free-text">{meal.free.description ?? 'Pasto libero, escluso dalla spesa.'}</p>
+        ) : needsChoice ? (
+          <p className="meal-choice-needed">
+            {meal.combinations.length > 0 && meal.combinationChoice === null
+              ? 'Scegli una variante della dieta.'
+              : 'Scegli tra gli alimenti alternativi.'}
+          </p>
         ) : (
-          <>
-            {meal.sourceDayIndex !== day.dayIndex && (
-              <span className="week-tag">Spostato da {meal.sourceDayName.toLowerCase()}</span>
-            )}
-            {meal.page !== null && <span className="week-meal-page">p. {meal.page}</span>}
-          </>
+          <MealFoods meal={meal} />
+        )}
+        {meal.notes && (
+          <details className="meal-diet-note">
+            <summary>Note della dieta</summary>
+            <p className="meal-card-note">{meal.notes}</p>
+          </details>
         )}
       </div>
-      {meal.free ? <FreeMealContent meal={meal} description={meal.free.description} /> : <PlannedMealContent meal={meal} />}
-      {(canSubstitute || targets.length > 0) && (
-        <details className="week-edit">
-          <summary>Modifica</summary>
-          {canSubstitute && (
-            <SubstitutionForm
-              key={JSON.stringify([
-                meal.mealId,
-                meal.sourceDayIndex,
-                meal.combinationChoice,
-                meal.mealChoice,
-                meal.rows.map((row) => row.choice),
-              ])}
-              day={day}
-              meal={meal}
-              busy={busy}
-              runAction={runAction}
-            />
+      {(canChoose || canSwap) && (
+        <button
+          className={needsChoice ? 'secondary-button meal-card-edit' : 'meal-card-action meal-card-edit'}
+          type="button"
+          aria-label={`${editing ? 'Chiudi' : needsChoice ? 'Scegli' : 'Modifica'} ${SLOT_LABELS[meal.slot].toLowerCase()}`}
+          aria-expanded={editing}
+          aria-controls={`${id}-editor`}
+          onClick={onEdit}
+          disabled={busy}
+        >
+          {editing ? 'Chiudi' : needsChoice ? 'Scegli' : 'Modifica'}
+        </button>
+      )}
+      {editing && (
+        <div className="meal-card-editor" id={`${id}-editor`}>
+          {canChoose && <MealChoices id={`${id}-choices`} day={day} meal={meal} busy={busy} runAction={runAction} />}
+          {canSwap && (
+            <details className="meal-swap">
+              <summary>Scambia con un altro giorno</summary>
+              <SwapChoices
+                id={`${id}-swap`}
+                label="Scambia con lo stesso pasto di"
+                targets={targets}
+                busy={busy}
+                onSwap={async (target) => {
+                  if (await runAction({ action: 'moveMeal', slot: meal.slot, dates: [day.date, target] }, 'Pasti scambiati. Le giornate sono in bozza.')) {
+                    onEdit()
+                  }
+                }}
+              />
+            </details>
           )}
-          {targets.length > 0 && (
-            <SwapForm
-              id={`move-${day.date}-${meal.slot}`}
-              label="Scambia con lo stesso pasto di"
-              submitLabel="Scambia il pasto"
-              targets={targets}
-              busy={busy}
-              onSwap={(target) =>
-                runAction({ action: 'moveMeal', slot: meal.slot, dates: [day.date, target] }, 'Pasti scambiati.')
-              }
-            />
-          )}
-        </details>
+        </div>
       )}
     </li>
+  )
+}
+
+type ShownFood = { key: string; food: FoodFields; prefix?: string; note?: string }
+
+// What a planned row puts on the plate: the saved choice, else every food of
+// the row as printed ("oppure").
+function rowFoods(row: WeekMealView['rows'][number]): ShownFood[] {
+  const chosen = row.options.find((option) => option.key === row.choice)
+  if (chosen?.type === 'item') {
+    return [{ key: row.key, food: chosen.item, note: `Equivalenza al posto di ${chosen.replaces.label}` }]
+  }
+  if (chosen?.type === 'component') {
+    return [{ key: row.key, food: chosen.component }]
+  }
+  return row.components.map((component, index) => ({
+    key: `${row.key}:${component.id}`,
+    food: component,
+    prefix: index > 0 ? 'oppure' : undefined,
+  }))
+}
+
+function MealFoods({ meal }: { meal: WeekMealView }) {
+  const wholeMeal = meal.mealOptions.find((option) => option.key === meal.mealChoice)
+  const planned: ShownFood[] = wholeMeal
+    ? [{ key: wholeMeal.key, food: wholeMeal.item, note: 'Equivalenza al posto del pasto della dieta' }]
+    : meal.rows
+        .filter((row) => row.combination === null || row.combination === meal.combinationChoice)
+        .flatMap(rowFoods)
+  return planned.length > 0
+    ? <FoodList foods={planned} />
+    : <p className="summary-missing">Nessun alimento nella dieta.</p>
+}
+
+// Raw is the plan's default, stated once per day; cooked weights, missing
+// quantities and an unspecified raw/cooked state stay visible on each food.
+function FoodList({ foods }: { foods: ShownFood[] }) {
+  return (
+    <ul className="meal-foods">
+      {foods.map(({ key, food, prefix, note }) => {
+        const amount = printedAmount(food)
+        return (
+          <li className="meal-food" key={key}>
+            <span className="meal-food-name">
+              {prefix && <span className="meal-food-muted">{prefix} </span>}
+              {food.label}
+              {food.state === 'cooked' && <span className="meal-food-muted"> · a cotto</span>}
+              {food.state === 'unspecified' && <span className="meal-food-warning">Stato crudo/cotto non specificato</span>}
+              {food.notes && <span className="meal-food-note">{food.notes}</span>}
+              {note && <span className="meal-food-note">{note}</span>}
+            </span>
+            {amount ? (
+              <span className="meal-food-amount">{amount}</span>
+            ) : (
+              <span className="meal-food-missing">quantità non indicata</span>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// Each press saves the draft. Only the day's explicit action publishes it.
+function MealChoices({
+  id,
+  day,
+  meal,
+  busy,
+  runAction,
+}: {
+  id: string
+  day: WeekDayView
+  meal: WeekMealView
+  busy: boolean
+  runAction: RunAction
+}) {
+  const wholeMeal = meal.mealOptions.some((option) => option.key === meal.mealChoice)
+  const plannedRows = wholeMeal
+    ? []
+    : meal.rows.filter((row) => row.combination === null || row.combination === meal.combinationChoice)
+  const rowChoices = Object.fromEntries(
+    plannedRows.flatMap((row) => (row.choice === null ? [] : [[row.key, row.choice]])),
+  )
+  function save(choices: WeekMealChoices) {
+    void runAction({ action: 'setChoices', date: day.date, slot: meal.slot, choices }, 'Scelta salvata in bozza.')
+  }
+  return (
+    <div className="meal-panel" id={id}>
+      {!wholeMeal && meal.combinations.length > 0 && (
+        <ChoiceGroup label="Variante">
+          {meal.combinations.map((combination) => (
+            <Chip
+              key={combination}
+              selected={combination === meal.combinationChoice}
+              busy={busy}
+              onSelect={() =>
+                save({
+                  combination,
+                  meal: null,
+                  rows: Object.fromEntries(
+                    plannedRows.flatMap((row) =>
+                      row.combination === null && row.choice !== null ? [[row.key, row.choice]] : [],
+                    ),
+                  ),
+                })
+              }
+            >
+              <span className="choice-variant">
+                <strong>{combination}</strong>
+                {meal.rows
+                  .filter((row) => row.combination === combination)
+                  .flatMap((row) => row.components.map((food, index) => (
+                    <span className="choice-variant-food" key={food.id}>
+                      {index > 0 && <span className="choice-chip-detail">oppure </span>}
+                      <ChipFood food={food} />
+                    </span>
+                  )))}
+              </span>
+            </Chip>
+          ))}
+        </ChoiceGroup>
+      )}
+      {plannedRows
+        .filter((row) => row.options.length > 0)
+        .map((row) => (
+          <ChoiceGroup
+            key={row.key}
+            // A single food's only options are equivalences scoped to it.
+            label={
+              row.components.length === 1
+                ? `${row.components[0]!.label} o un equivalente`
+                : row.components.map((component) => component.label).join(' o ')
+            }
+          >
+            {row.components.length === 1 && (
+              <Chip
+                selected={row.choice === null}
+                busy={busy}
+                onSelect={() =>
+                  save({
+                    combination: meal.combinationChoice,
+                    meal: null,
+                    rows: Object.fromEntries(Object.entries(rowChoices).filter(([key]) => key !== row.key)),
+                  })
+                }
+              >
+                <ChipFood food={row.components[0]!} />
+              </Chip>
+            )}
+            {row.options.map((option) => (
+              <Chip
+                key={option.key}
+                selected={option.key === row.choice}
+                busy={busy}
+                onSelect={() =>
+                  save({ combination: meal.combinationChoice, meal: null, rows: { ...rowChoices, [row.key]: option.key } })
+                }
+              >
+                <ChipFood food={option.type === 'component' ? option.component : option.item} />
+              </Chip>
+            ))}
+          </ChoiceGroup>
+        ))}
+      {meal.mealOptions.length > 0 && (
+        <ChoiceGroup label="Pasto intero">
+          <Chip selected={!wholeMeal} busy={busy} onSelect={() => save({ combination: null, meal: null, rows: {} })}>
+            Come nella dieta
+          </Chip>
+          {meal.mealOptions.map((option) => (
+            <Chip
+              key={option.key}
+              selected={option.key === meal.mealChoice}
+              busy={busy}
+              onSelect={() => save({ combination: null, meal: option.key, rows: {} })}
+            >
+              <ChipFood food={option.item} />
+            </Chip>
+          ))}
+        </ChoiceGroup>
+      )}
+    </div>
+  )
+}
+
+function SwapChoices({
+  id,
+  label,
+  targets,
+  busy,
+  onSwap,
+}: {
+  id: string
+  label: string
+  targets: WeekDayView[]
+  busy: boolean
+  onSwap: (date: string) => Promise<void>
+}) {
+  return (
+    <div className="meal-panel" id={id}>
+      <ChoiceGroup label={label}>
+        {targets.map((target) => (
+          <button
+            key={target.date}
+            className="choice-chip"
+            type="button"
+            aria-label={`${target.dayName} ${formatDay(target.date)}`}
+            aria-disabled={busy}
+            onClick={() => {
+              if (!busy) void onSwap(target.date)
+            }}
+          >
+            {target.dayName.slice(0, 3)} {Number(target.date.slice(8))}
+          </button>
+        ))}
+      </ChoiceGroup>
+    </div>
+  )
+}
+
+function ChoiceGroup({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId()
+  return (
+    <div className="choice-group" role="group" aria-labelledby={id}>
+      <p id={id}>{label}</p>
+      <div className="choice-chips">{children}</div>
+    </div>
+  )
+}
+
+// A pressed chip is the saved choice. While a change saves, chips keep focus
+// but ignore presses; runAction rejects concurrent changes too.
+function Chip({
+  selected,
+  busy,
+  onSelect,
+  children,
+}: {
+  selected: boolean
+  busy: boolean
+  onSelect: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      className="choice-chip"
+      type="button"
+      aria-pressed={selected}
+      aria-disabled={busy}
+      onClick={() => {
+        if (!selected && !busy) onSelect()
+      }}
+    >
+      {selected && CHECK_ICON}
+      {children}
+    </button>
+  )
+}
+
+function ChipFood({ food }: { food: FoodFields }) {
+  const amount = printedAmount(food)
+  return (
+    <span>
+      {food.label}
+      <span className="choice-chip-detail"> {amount || '· quantità non indicata'}</span>
+      {food.state === 'cooked' && <span className="choice-chip-detail"> a cotto</span>}
+      {food.state === 'unspecified' && <span className="choice-chip-detail"> · stato crudo/cotto non specificato</span>}
+      {food.notes && <span className="choice-chip-detail"> · {food.notes}</span>}
+    </span>
   )
 }
 
@@ -494,15 +839,15 @@ export function PlannedMealContent({ meal }: { meal: WeekMealView }) {
       ) : (
         <>
           {meal.combinationChoice !== null && (
-            <p className="week-combination-choice">Combinazione: {meal.combinationChoice}</p>
+            <p className="week-combination-choice">Variante: {meal.combinationChoice}</p>
           )}
           {plannedRows.length > 0 && openCombinations.length > 0 && (
-            <p className="summary-note">In tutte le combinazioni:</p>
+            <p className="summary-note">In tutte le varianti:</p>
           )}
           {plannedRows.length > 0 && <PlannedRows rows={plannedRows} />}
           {openCombinations.length > 0 && (
             <details className="week-combinations">
-              <summary>{openCombinations.length} combinazioni a scelta</summary>
+              <summary>{openCombinations.length} varianti dalla dieta</summary>
               <ol>
                 {openCombinations.map((combination) => (
                   <li key={combination}>
@@ -549,166 +894,5 @@ function PlannedRows({ rows }: { rows: WeekMealView['rows'] }) {
         )
       })}
     </ul>
-  )
-}
-
-function FreeMealContent({ meal, description }: { meal: WeekMealView; description: string | null }) {
-  const replaced = meal.rows.flatMap((row) => row.components.map((component) => component.label))
-  return (
-    <>
-      <p className="week-free-description">{description ?? 'Nessuna descrizione.'}</p>
-      {meal.combinations.length > 0 ? (
-        <p className="summary-note">Al posto del pasto previsto dal piano.</p>
-      ) : (
-        replaced.length > 0 && <p className="summary-note">Al posto di: {replaced.join(', ')}</p>
-      )}
-    </>
-  )
-}
-
-function SubstitutionForm({
-  day,
-  meal,
-  busy,
-  runAction,
-}: {
-  day: WeekDayView
-  meal: WeekMealView
-  busy: boolean
-  runAction: RunAction
-}) {
-  const [wholeMeal, setWholeMeal] = useState(meal.mealChoice ?? '')
-  const [combination, setCombination] = useState(meal.combinationChoice ?? '')
-  // Only the shared foods and those of the chosen combination can be substituted.
-  const rows = meal.rows.filter(
-    (row) => row.options.length > 0 && (row.combination === null || row.combination === combination),
-  )
-  const idPrefix = `substitution-${day.date}-${meal.slot}`
-
-  function save(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const choices: WeekMealChoices = {
-      combination: wholeMeal ? null : combination || null,
-      meal: wholeMeal || null,
-      rows: {},
-    }
-    if (!wholeMeal) {
-      for (const row of rows) {
-        const value = form.get(row.key)
-        if (typeof value === 'string' && value) choices.rows[row.key] = value
-      }
-    }
-    void runAction({ action: 'setChoices', date: day.date, slot: meal.slot, choices }, 'Sostituzioni salvate.')
-  }
-
-  return (
-    <form className="week-form" onSubmit={save}>
-      {meal.mealOptions.length > 0 && (
-        <>
-          <label htmlFor={`${idPrefix}-meal`}>Pasto intero</label>
-          <select
-            id={`${idPrefix}-meal`}
-            value={wholeMeal}
-            onChange={(event) => setWholeMeal(event.currentTarget.value)}
-            disabled={busy}
-          >
-            <option value="">Come da piano</option>
-            {meal.mealOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {`${foodLine(option.item)} (equivalenza${option.equivalence.page !== null ? `, p. ${option.equivalence.page}` : ''})`}
-              </option>
-            ))}
-          </select>
-        </>
-      )}
-      {meal.combinations.length > 0 && (
-        <>
-          <label htmlFor={`${idPrefix}-combination`}>Combinazione</label>
-          <select
-            id={`${idPrefix}-combination`}
-            value={combination}
-            onChange={(event) => setCombination(event.currentTarget.value)}
-            disabled={busy || wholeMeal !== ''}
-          >
-            <option value="">Da scegliere, come da piano</option>
-            {meal.combinations.map((label) => (
-              <option key={label} value={label}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </>
-      )}
-      {rows.map((row) => (
-        <Fragment key={row.key}>
-          <label htmlFor={`${idPrefix}-${row.key.replace(':', '-')}`}>
-            {row.components.map((component) => component.label).join(' oppure ')}
-          </label>
-          <select
-            id={`${idPrefix}-${row.key.replace(':', '-')}`}
-            name={row.key}
-            defaultValue={row.choice ?? ''}
-            disabled={busy || wholeMeal !== ''}
-          >
-            <option value="">{row.components.length > 1 ? 'Da scegliere, come da piano' : 'Come da piano'}</option>
-            {row.options.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.type === 'component'
-                  ? foodLine(option.component)
-                  : `${foodLine(option.item)} (equivalenza di ${option.replaces.label})`}
-              </option>
-            ))}
-          </select>
-        </Fragment>
-      ))}
-      <button className="secondary-button" type="submit" disabled={busy}>
-        Salva le sostituzioni
-      </button>
-    </form>
-  )
-}
-
-function SwapForm({
-  id,
-  label,
-  submitLabel,
-  targets,
-  busy,
-  onSwap,
-}: {
-  id: string
-  label: string
-  submitLabel: string
-  targets: WeekDayView[]
-  busy: boolean
-  onSwap: (date: string) => Promise<void>
-}) {
-  async function swap(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = event.currentTarget
-    const target = new FormData(form).get('target')
-    if (typeof target !== 'string' || !target) return
-    await onSwap(target)
-    form.reset()
-  }
-
-  return (
-    <form className="week-form" onSubmit={swap}>
-      <label htmlFor={id}>{label}</label>
-      <select id={id} name="target" required defaultValue="" disabled={busy}>
-        <option value="" disabled>
-          Scegli un giorno
-        </option>
-        {targets.map((target) => (
-          <option key={target.date} value={target.date}>
-            {`${target.dayName} ${formatDay(target.date)}`}
-          </option>
-        ))}
-      </select>
-      <button className="secondary-button" type="submit" disabled={busy}>
-        {submitLabel}
-      </button>
-    </form>
   )
 }

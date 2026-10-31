@@ -10,9 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as DietaRouteImport } from './routes/dieta'
 import { Route as SettimanaRouteImport } from './routes/settimana'
+import { Route as SpesaRouteImport } from './routes/spesa'
 import { Route as ApiDiaryRouteImport } from './routes/api/diary'
+import { Route as ApiGroceriesRouteImport } from './routes/api/groceries'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiImportsRouteImport } from './routes/api/imports'
 import { Route as ApiWeeksRouteImport } from './routes/api/weeks'
@@ -25,6 +28,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CalendarioRoute = CalendarioRouteImport.update({
+  id: '/calendario',
+  path: '/calendario',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DietaRoute = DietaRouteImport.update({
   id: '/dieta',
   path: '/dieta',
@@ -35,9 +43,19 @@ const SettimanaRoute = SettimanaRouteImport.update({
   path: '/settimana',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SpesaRoute = SpesaRouteImport.update({
+  id: '/spesa',
+  path: '/spesa',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDiaryRoute = ApiDiaryRouteImport.update({
   id: '/api/diary',
   path: '/api/diary',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGroceriesRoute = ApiGroceriesRouteImport.update({
+  id: '/api/groceries',
+  path: '/api/groceries',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -73,9 +91,12 @@ const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/calendario': typeof CalendarioRoute
   '/dieta': typeof DietaRoute
   '/settimana': typeof SettimanaRoute
+  '/spesa': typeof SpesaRoute
   '/api/diary': typeof ApiDiaryRoute
+  '/api/groceries': typeof ApiGroceriesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -85,9 +106,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/calendario': typeof CalendarioRoute
   '/dieta': typeof DietaRoute
   '/settimana': typeof SettimanaRoute
+  '/spesa': typeof SpesaRoute
   '/api/diary': typeof ApiDiaryRoute
+  '/api/groceries': typeof ApiGroceriesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -98,9 +122,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/calendario': typeof CalendarioRoute
   '/dieta': typeof DietaRoute
   '/settimana': typeof SettimanaRoute
+  '/spesa': typeof SpesaRoute
   '/api/diary': typeof ApiDiaryRoute
+  '/api/groceries': typeof ApiGroceriesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/imports': typeof ApiImportsRoute
   '/api/weeks': typeof ApiWeeksRoute
@@ -112,9 +139,12 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/calendario'
     | '/dieta'
     | '/settimana'
+    | '/spesa'
     | '/api/diary'
+    | '/api/groceries'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -124,9 +154,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/calendario'
     | '/dieta'
     | '/settimana'
+    | '/spesa'
     | '/api/diary'
+    | '/api/groceries'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -136,9 +169,12 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/calendario'
     | '/dieta'
     | '/settimana'
+    | '/spesa'
     | '/api/diary'
+    | '/api/groceries'
     | '/api/health'
     | '/api/imports'
     | '/api/weeks'
@@ -149,9 +185,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CalendarioRoute: typeof CalendarioRoute
   DietaRoute: typeof DietaRoute
   SettimanaRoute: typeof SettimanaRoute
+  SpesaRoute: typeof SpesaRoute
   ApiDiaryRoute: typeof ApiDiaryRoute
+  ApiGroceriesRoute: typeof ApiGroceriesRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiImportsRoute: typeof ApiImportsRoute
   ApiWeeksRoute: typeof ApiWeeksRoute
@@ -169,6 +208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/calendario': {
+      id: '/calendario'
+      path: '/calendario'
+      fullPath: '/calendario'
+      preLoaderRoute: typeof CalendarioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dieta': {
       id: '/dieta'
       path: '/dieta'
@@ -183,11 +229,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettimanaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/spesa': {
+      id: '/spesa'
+      path: '/spesa'
+      fullPath: '/spesa'
+      preLoaderRoute: typeof SpesaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/diary': {
       id: '/api/diary'
       path: '/api/diary'
       fullPath: '/api/diary'
       preLoaderRoute: typeof ApiDiaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/groceries': {
+      id: '/api/groceries'
+      path: '/api/groceries'
+      fullPath: '/api/groceries'
+      preLoaderRoute: typeof ApiGroceriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -237,9 +297,12 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CalendarioRoute: CalendarioRoute,
   DietaRoute: DietaRoute,
   SettimanaRoute: SettimanaRoute,
+  SpesaRoute: SpesaRoute,
   ApiDiaryRoute: ApiDiaryRoute,
+  ApiGroceriesRoute: ApiGroceriesRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiImportsRoute: ApiImportsRoute,
   ApiWeeksRoute: ApiWeeksRoute,

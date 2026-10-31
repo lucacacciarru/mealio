@@ -11,7 +11,7 @@ import {
 // case-insensitively at the application level; aliases are stored lowercase.
 // Nutrients and food state belong to the macro phase and are not modeled here.
 
-function normalizeAlias(alias: string): string {
+export function normalizeAlias(alias: string): string {
   return alias.trim().toLowerCase()
 }
 

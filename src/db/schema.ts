@@ -40,12 +40,20 @@ export const catalogUnits = sqliteTable('catalog_units', {
   name: text('name'),
 })
 
+// Shopping rules are explicit and optional. `groceryUnit` is the canonical unit
+// the grocery list sums the food in ('' = a bare count); null keeps each
+// printed unit apart. `packageSize` is in that unit. `storageDays` says how
+// long the food keeps after purchase; null buys it on the round of its use.
 export const catalogFoods = sqliteTable('catalog_foods', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   canonicalName: text('canonical_name').notNull().unique(),
   defaultUnitId: integer('default_unit_id').references(() => catalogUnits.id),
   aisleId: integer('aisle_id').references(() => catalogAisles.id),
   createdAt: integer('created_at').notNull(),
+  groceryUnit: text('grocery_unit'),
+  packageSize: real('package_size'),
+  storageDays: integer('storage_days'),
+  alwaysAtHome: integer('always_at_home', { mode: 'boolean' }).notNull().default(false),
 })
 
 export const catalogFoodAliases = sqliteTable(
@@ -58,6 +66,25 @@ export const catalogFoodAliases = sqliteTable(
     alias: text('alias').notNull(),
   },
   (table) => [uniqueIndex('catalog_food_aliases_alias_unique').on(table.alias)],
+)
+
+// One `unit` of the food equals `factor` of its grocery unit. Units are
+// canonical keys (see src/server/groceries.ts); rules are set by the user for
+// one food and never inferred.
+export const catalogFoodConversions = sqliteTable(
+  'catalog_food_conversions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    foodId: integer('food_id')
+      .notNull()
+      .references(() => catalogFoods.id, { onDelete: 'cascade' }),
+    unit: text('unit').notNull(),
+    factor: real('factor').notNull(),
+  },
+  (table) => [
+    uniqueIndex('catalog_food_conversions_food_unit_unique').on(table.foodId, table.unit),
+    check('catalog_food_conversions_factor_check', sql`factor > 0`),
+  ],
 )
 
 // ---------------------------------------------------------------------------
@@ -225,11 +252,10 @@ export const planEquivalenceItems = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Weekly planning. A row exists only for a confirmed ISO week; an unconfirmed
-// week is derived from the plan valid for each date. Each week meal stores a
-// snapshot of the plan meal it carries, so later plan versions and edits to
-// other days never rewrite it. Swaps move snapshots, choices, and the free
-// meal between dates of the same plan version.
+// Weekly snapshots and saved draft choices are independent of publication.
+// Only an explicit per-day confirmation in week_days publishes its meals.
+// Each week meal keeps its source plan snapshot; swaps move snapshots,
+// choices, and the free meal between dates of the same plan version.
 // ---------------------------------------------------------------------------
 
 export const weeks = sqliteTable(
@@ -252,6 +278,18 @@ export const weeks = sqliteTable(
       sql`(free_meal_date is null) = (free_meal_slot is null) and (free_meal_description is null or free_meal_date is not null)`,
     ),
   ],
+)
+
+export const weekDays = sqliteTable(
+  'week_days',
+  {
+    weekId: integer('week_id')
+      .notNull()
+      .references(() => weeks.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    plannedAt: integer('planned_at').notNull(),
+  },
+  (table) => [uniqueIndex('week_days_week_date_unique').on(table.weekId, table.date)],
 )
 
 export const weekMeals = sqliteTable(
@@ -315,3 +353,72 @@ export const checkInOperations = sqliteTable('check_in_operations', {
   id: text('id').primaryKey(),
   requestHash: text('request_hash').notNull(),
 })
+
+// ---------------------------------------------------------------------------
+// Groceries. The list itself is never stored: it is recalculated from the
+// week. Pantry stock, checkmarks, and manual items are the user's separate
+// records. Foods are keyed `food:<catalog id>` or, for a plan label missing
+// from the catalog, `label:<normalized label>`; units are canonical keys.
+// ---------------------------------------------------------------------------
+
+export const GROCERY_ROUNDS = ['monday', 'thursday'] as const
+export type GroceryRound = (typeof GROCERY_ROUNDS)[number]
+
+// Stock at home before the Monday round of an ISO week.
+export const groceryPantry = sqliteTable(
+  'grocery_pantry',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    weekStart: text('week_start').notNull(),
+    foodKey: text('food_key').notNull(),
+    name: text('name').notNull(),
+    unit: text('unit').notNull(),
+    quantity: real('quantity').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('grocery_pantry_week_food_unit_unique').on(table.weekStart, table.foodKey, table.unit),
+    check('grocery_pantry_quantity_check', sql`quantity > 0`),
+  ],
+)
+
+// What was bought for a list line, as shown when it was checked; null when the
+// line had no computable amount. The recalculated list is compared with it to
+// show what to add or what is no longer needed.
+export const groceryChecks = sqliteTable(
+  'grocery_checks',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    weekStart: text('week_start').notNull(),
+    round: text('round', { enum: GROCERY_ROUNDS }).notNull(),
+    foodKey: text('food_key').notNull(),
+    name: text('name').notNull(),
+    unit: text('unit').notNull(),
+    cooked: integer('cooked', { mode: 'boolean' }).notNull(),
+    quantity: real('quantity'),
+    checkedAt: integer('checked_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('grocery_checks_line_unique').on(table.weekStart, table.round, table.foodKey, table.unit, table.cooked),
+    check('grocery_checks_round_check', sql`round in ('monday', 'thursday')`),
+    check('grocery_checks_quantity_check', sql`quantity is null or quantity >= 0`),
+  ],
+)
+
+export const groceryManualItems = sqliteTable(
+  'grocery_manual_items',
+  {
+    // Generated by the client, so a retried request cannot add the item twice.
+    id: text('id').primaryKey(),
+    weekStart: text('week_start').notNull(),
+    round: text('round', { enum: GROCERY_ROUNDS }).notNull(),
+    label: text('label').notNull(),
+    quantityText: text('quantity_text'),
+    checkedAt: integer('checked_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('grocery_manual_items_week_start_idx').on(table.weekStart),
+    check('grocery_manual_items_round_check', sql`round in ('monday', 'thursday')`),
+  ],
+)

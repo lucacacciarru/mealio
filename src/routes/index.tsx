@@ -1,18 +1,33 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
-import { TodayDiary } from '../components/today-diary'
+import { WeekPlanner } from '../components/week-planner'
 
 export const Route = createFileRoute('/')({
-  validateSearch: (search: Record<string, unknown>): { date?: string } => {
+  validateSearch: (search: Record<string, unknown>): { start?: string; date?: string } => {
+    const start = z.iso.date().safeParse(search.start)
     const date = z.iso.date().safeParse(search.date)
-    return { date: date.success ? date.data : undefined }
+    return { start: start.success ? start.data : undefined, date: date.success ? date.data : undefined }
   },
-  head: () => ({ meta: [{ title: 'Calendario · Mealio' }] }),
-  component: CalendarPage,
+  head: () => ({ meta: [{ title: 'Settimana · Mealio' }] }),
+  component: WeekPage,
 })
 
-function CalendarPage() {
-  const { date } = Route.useSearch()
+function WeekPage() {
+  const { start, date } = Route.useSearch()
   const navigate = Route.useNavigate()
-  return <TodayDiary date={date ?? null} onDateChange={(selected) => void navigate({ search: { date: selected ?? undefined } })} />
+  return (
+    <section className="screen-content" aria-labelledby="week-page-title">
+      <header className="screen-heading">
+        <div>
+          <h1 id="week-page-title">La tua settimana</h1>
+        </div>
+      </header>
+      <WeekPlanner
+        weekStart={start ?? null}
+        selectedDate={date ?? null}
+        onDayChange={(selected) => void navigate({ search: { start, date: selected } })}
+        onWeekChange={(selected) => void navigate({ search: { start: selected ?? undefined } })}
+      />
+    </section>
+  )
 }
