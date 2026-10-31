@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
-import { planComponents, planEquivalences, planEquivalenceItems, weekDays, weekMeals, weeks } from '../db/schema'
+import { planComponents, planEquivalences, planEquivalenceItems, weekMeals, weeks } from '../db/schema'
 import { HttpError } from './http'
 
-test('only explicitly confirmed complete days publish, and edits invalidate only affected dates', async (t) => {
+test('days are ready once their choices are made, and last week\'s choices can be repeated', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'mealio-weeks-test-'))
   const previousPath = process.env.DATABASE_PATH
   process.env.DATABASE_PATH = join(directory, 'weeks.sqlite')
@@ -16,7 +16,7 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
   // the singleton opens DATABASE_PATH at module initialization.
   const { db, sqlite } = await import('../db')
   const { activatePlanVersion, createPlanVersion, ensureMeal } = await import('./plans')
-  const { clearWeekFreeMeal, confirmDay, getWeek, refreshWeek, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
+  const { clearWeekFreeMeal, getWeek, refreshWeek, repeatPreviousWeekChoices, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
   const { getGroceries } = await import('./groceries')
   try {
     migrate(db, { migrationsFolder: './drizzle' })
@@ -49,37 +49,33 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
     assert.equal(breakfast.rows[0]!.choice, null)
     assert.equal(preview.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, null)
     assert.equal(preview.days[0]!.unresolvedChoices, 2)
-    assert.ok(preview.days.every((day) => day.plannedAt === null))
+    assert.ok(preview.days.every((day) => !day.ready))
     assert.deepEqual(db.select().from(weeks).all(), [])
     const grocery = getGroceries(start)
     assert.equal(grocery.planned, true)
     assert.equal(grocery.unplannedDays.length, 7)
+    assert.equal(grocery.unplannedDays[0]!.unresolvedChoices, 2)
     assert.deepEqual(grocery.rounds.flatMap((round) => round.aisles), [])
 
-    // Failed first edits and incomplete confirmations leave no snapshot or publication.
+    // A failed first edit leaves no snapshot.
     assert.throws(() => setWeekMealChoices(start, start, 'lunch', {
       combination: 'Non prevista dalla dieta', meal: null, rows: {},
     }), (cause) => cause instanceof HttpError && cause.status === 400)
-    assert.throws(() => confirmDay(start, start),
-      (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('colazione'))
     assert.deepEqual(db.select().from(weeks).all(), [])
-    assert.deepEqual(db.select().from(weekDays).all(), [])
 
+    // A day becomes ready, and enters groceries, as soon as its last choice is made.
     const selected = setWeekMealChoices(start, start, 'lunch', { combination: 'Riso e lenticchie', meal: null, rows: {} })
-    assert.equal(selected.status, 'confirmed') // Legacy snapshot status, not publication.
-    assert.ok(selected.days.every((day) => day.plannedAt === null))
+    assert.ok(selected.days.every((day) => !day.ready))
     assert.equal(selected.days[1]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, null)
     assert.deepEqual(getGroceries(start).rounds.flatMap((round) => round.aisles), [])
     const yogurt = breakfast.rows[0]!.options.find((option) => option.type === 'component' && option.component.label === 'Yogurt')!
-    setWeekMealChoices(start, start, 'breakfast', { combination: null, meal: null, rows: { [breakfast.rows[0]!.key]: yogurt.key } })
-    assert.equal(getWeek(start).days[0]!.unresolvedChoices, 0)
-    assert.deepEqual(getGroceries(start).rounds.flatMap((round) => round.aisles), [])
-    const published = confirmDay(start, start)
-    assert.notEqual(published.days[0]!.plannedAt, null)
-    assert.ok(published.days.slice(1).every((day) => day.plannedAt === null))
-    const publishedFoods = getGroceries(start).rounds.flatMap((round) => round.aisles.flatMap((aisle) => aisle.lines))
-    assert.equal(publishedFoods.find((food) => food.name === 'Riso')!.needed, 70)
-    assert.equal(publishedFoods.some((food) => food.name === 'Pasta' || food.name === 'Latte'), false)
+    const ready = setWeekMealChoices(start, start, 'breakfast', { combination: null, meal: null, rows: { [breakfast.rows[0]!.key]: yogurt.key } })
+    assert.equal(ready.days[0]!.unresolvedChoices, 0)
+    assert.equal(ready.days[0]!.ready, true)
+    assert.ok(ready.days.slice(1).every((day) => !day.ready))
+    const readyFoods = getGroceries(start).rounds.flatMap((round) => round.aisles.flatMap((aisle) => aisle.lines))
+    assert.equal(readyFoods.find((food) => food.name === 'Riso')!.needed, 70)
+    assert.equal(readyFoods.some((food) => food.name === 'Pasta' || food.name === 'Latte'), false)
     assert.equal(getGroceries(start).unplannedDays.length, 6)
 
     function completeDay(date: string) {
@@ -87,45 +83,32 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
       const row = meal.rows[0]!
       const choice = row.options.find((option) => option.type === 'component' && option.component.label === 'Yogurt')!
       setWeekMealChoices(start, date, 'breakfast', { combination: null, meal: null, rows: { [row.key]: choice.key } })
-      setWeekMealChoices(start, date, 'lunch', { combination: 'Pasta e ceci', meal: null, rows: {} })
-      return confirmDay(start, date)
+      return setWeekMealChoices(start, date, 'lunch', { combination: 'Pasta e ceci', meal: null, rows: {} })
     }
     completeDay('2026-10-20')
     completeDay('2026-10-21')
-    completeDay('2026-10-22')
-    const untouchedAt = getWeek(start).days[2]!.plannedAt
+    assert.deepEqual(getWeek(start).days.slice(0, 4).map((day) => day.ready), [true, true, true, false])
 
-    // Unresolved input is preserved rather than filled from the plan.
+    // Reopening a choice makes only that day not ready; nothing is filled from the plan.
     const cleared = setWeekMealChoices(start, start, 'lunch', { combination: null, meal: null, rows: {} })
-    assert.equal(cleared.days[0]!.plannedAt, null)
+    assert.equal(cleared.days[0]!.ready, false)
     assert.equal(cleared.days[0]!.unresolvedChoices, 1)
-    assert.equal(cleared.days[1]!.plannedAt, published.days[0]!.plannedAt)
-    assert.throws(() => confirmDay(start, start),
-      (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('pranzo'))
+    assert.equal(cleared.days[1]!.ready, true)
     setWeekMealChoices(start, start, 'lunch', { combination: 'Riso e lenticchie', meal: null, rows: {} })
-    confirmDay(start, start)
+
+    // Moving a meal swaps it with the same slot: nothing is copied or dropped.
     const moved = swapWeekMeals(start, [start, '2026-10-20'], ['lunch'])
     assert.equal(moved.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Pasta e ceci')
     assert.equal(moved.days[1]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Riso e lenticchie')
     assert.equal(moved.days[0]!.meals.find((meal) => meal.slot === 'dinner')!.rows[0]!.components[0]!.label, 'Cena 1')
-    assert.deepEqual(moved.days.slice(0, 2).map((day) => day.plannedAt), [null, null])
-    assert.equal(moved.days[2]!.plannedAt, untouchedAt)
+    assert.deepEqual(moved.days.slice(0, 2).map((day) => day.ready), [true, true])
     assert.equal(db.select().from(weekMeals).all().length, 35)
-    confirmDay(start, start)
-    confirmDay(start, '2026-10-20')
 
-    // Free meals resolve their slot, and moving/removing one invalidates both old and new dates only.
-    setWeekFreeMeal(start, start, 'lunch', 'Pasto sintetico')
-    assert.equal(getWeek(start).days[0]!.plannedAt, null)
-    confirmDay(start, start)
-    setWeekFreeMeal(start, '2026-10-20', 'lunch', null)
-    assert.deepEqual(getWeek(start).days.slice(0, 2).map((day) => day.plannedAt), [null, null])
-    assert.equal(getWeek(start).days[2]!.plannedAt, untouchedAt)
-    confirmDay(start, start)
-    confirmDay(start, '2026-10-20')
+    // A free meal resolves its slot and follows nothing else.
+    setWeekFreeMeal(start, '2026-10-22', 'lunch', 'Pasto sintetico')
+    assert.equal(getWeek(start).days[3]!.unresolvedChoices, 1)
     clearWeekFreeMeal(start)
-    assert.notEqual(getWeek(start).days[0]!.plannedAt, null)
-    assert.equal(getWeek(start).days[1]!.plannedAt, null)
+    assert.equal(getWeek(start).days[3]!.unresolvedChoices, 2)
 
     // Count shared and selected-set alternatives, not rows in unselected sets.
     const sunday = '2026-10-25'
@@ -133,8 +116,6 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
     setWeekMealChoices(start, sunday, 'lunch', { combination: 'Riso e lenticchie', meal: null, rows: {} })
     setWeekFreeMeal(start, sunday, 'breakfast', null)
     assert.equal(getWeek(start).days[6]!.unresolvedChoices, 2)
-    assert.throws(() => confirmDay(start, sunday),
-      (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('pranzo'))
     const sundayLunch = getWeek(start).days[6]!.meals.find((meal) => meal.slot === 'lunch')!
     const oil = sundayLunch.rows.find((row) => row.components.some((food) => food.label === 'Olio'))!
     const rice = sundayLunch.rows.find((row) => row.components.some((food) => food.label === 'Riso'))!
@@ -145,13 +126,25 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
       },
     })
     assert.equal(decided.days[6]!.unresolvedChoices, 0)
-    assert.equal(decided.days[6]!.plannedAt, null)
-    confirmDay(start, sunday)
+    assert.equal(decided.days[6]!.ready, true)
     clearWeekFreeMeal(start)
     assert.equal(getWeek(start).days[6]!.unresolvedChoices, 1)
-    assert.equal(getWeek(start).days[6]!.plannedAt, null)
+    assert.equal(getWeek(start).days[6]!.ready, false)
 
-    // Refresh only invalidates dates whose source plan actually changes.
+    // Repeating last week copies the choices of the same plan meals, only where
+    // they are still open, and never swaps.
+    const next = '2026-10-26'
+    const repeated = repeatPreviousWeekChoices(next)
+    // Last week's Monday/Tuesday lunches were swapped: each plan meal keeps its own choice.
+    assert.equal(repeated.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Riso e lenticchie')
+    assert.equal(repeated.days[1]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Pasta e ceci')
+    assert.equal(repeated.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.sourceDayIndex, 0)
+    assert.deepEqual(repeated.days.map((day) => day.ready), [true, true, true, false, false, false, false])
+    assert.equal(repeated.days[6]!.unresolvedChoices, 1)
+    assert.throws(() => repeatPreviousWeekChoices(next), (cause) => cause instanceof HttpError && cause.status === 409)
+    assert.throws(() => repeatPreviousWeekChoices('2026-11-09'), (cause) => cause instanceof HttpError && cause.status === 409)
+
+    // Refresh replans only dates whose source plan actually changes.
     const updatedVersion = createPlanVersion('Nuova dieta sintetica')
     for (let day = 0; day < 7; day += 1) {
       db.insert(planComponents).values({
@@ -164,13 +157,13 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
     db.insert(planEquivalenceItems).values({ equivalenceId: equivalence.id, position: 0, label: 'Equivalenza facoltativa', quantity: null }).run()
     activatePlanVersion(updatedVersion, '2026-10-22')
     const refreshed = refreshWeek(start)
-    assert.notEqual(refreshed.days[0]!.plannedAt, null)
-    assert.equal(refreshed.days[2]!.plannedAt, untouchedAt)
-    assert.equal(refreshed.days[3]!.plannedAt, null)
+    assert.equal(refreshed.days[0]!.ready, true)
+    assert.equal(refreshed.days[2]!.ready, true)
     assert.equal(refreshed.days[3]!.plannedVersion!.id, updatedVersion)
     assert.equal(refreshed.days[3]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, null)
-    const future = confirmDay('2026-10-26', '2026-10-26')
-    assert.notEqual(future.days[0]!.plannedAt, null)
+    // A day without required choices is ready without any action.
+    const future = getWeek('2026-11-02')
+    assert.equal(future.days[0]!.ready, true)
     assert.equal(future.days[0]!.meals.find((meal) => meal.slot === 'dinner')!.mealChoice, null)
 
     // Missing slots and quantities remain explicit; they are never invented.
@@ -179,25 +172,21 @@ test('only explicitly confirmed complete days publish, and edits invalidate only
       mealId: ensureMeal(incompleteVersion, 0, 'lunch'), position: 0, label: 'Solo pranzo', quantity: null, state: 'raw',
     }).run()
     activatePlanVersion(incompleteVersion, '2026-11-04')
-    const partial = confirmDay('2026-11-09', '2026-11-09')
-    assert.notEqual(partial.days[0]!.plannedAt, null)
+    const partial = getWeek('2026-11-09')
+    assert.equal(partial.days[0]!.ready, true)
     assert.deepEqual(partial.days[0]!.meals.find((meal) => meal.slot === 'breakfast')!.rows, [])
     assert.equal(partial.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.rows[0]!.components[0]!.quantity, null)
     assert.throws(() => swapWeekMeals('2026-11-02', ['2026-11-02', '2026-11-05'], ['lunch']),
       (cause) => cause instanceof HttpError && cause.status === 409)
-    assert.equal(getWeek('2026-11-02').status, 'unconfirmed')
 
-    // A week may contain diet dates without a valid diet on the requested day.
+    // Days before the first diet have no meals and are never ready.
     t.mock.timers.setTime(new Date('2026-09-27T10:00:00Z').getTime())
-    assert.throws(() => confirmDay('2026-09-28', '2026-09-28'),
-      (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('questo giorno'))
+    assert.equal(getWeek('2026-09-28').days[0]!.ready, false)
     assert.equal(getWeek('2026-09-28').status, 'unconfirmed')
 
     t.mock.timers.setTime(new Date('2026-10-27T10:00:00Z').getTime())
     assert.throws(() => setWeekMealChoices(start, start, 'lunch', { combination: null, meal: null, rows: {} }),
       (cause) => cause instanceof HttpError && cause.status === 409)
-    assert.throws(() => confirmDay(start, start), (cause) => cause instanceof HttpError && cause.status === 409)
-    assert.equal(getWeek(start).confirmedAt, selected.confirmedAt)
     assert.equal(getWeek(start).days[1]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Riso e lenticchie')
   } finally {
     sqlite.close()

@@ -57,6 +57,13 @@
       "when": 1792403222806,
       "tag": "0007_happy_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793450011453,
+      "tag": "0008_flippant_blizzard",
+      "breakpoints": true
     }
   ]
 }

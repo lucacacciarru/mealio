@@ -4,15 +4,11 @@ import type { DiaryDay } from '../diary'
 import { CHECK_IN_NOTE_MAX_LENGTH } from '../diary'
 import { SLOT_LABELS } from './plan-text'
 import { useDiary } from './use-diary'
-import { PlannedMealContent } from './week-planner'
-import './calendar.css'
+import { MealFoods } from './week-planner'
+import './today.css'
 
-const fullDateFormatter = new Intl.DateTimeFormat('it-IT', {
-  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Rome',
-})
-
-const weekDateFormatter = new Intl.DateTimeFormat('it-IT', {
-  day: 'numeric', month: 'short', timeZone: 'Europe/Rome',
+const dayFormatter = new Intl.DateTimeFormat('it-IT', {
+  weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Rome',
 })
 
 function todayInRome(): string {
@@ -36,6 +32,7 @@ function confirmDiscardNotes(element: HTMLElement | null): boolean {
   return !element?.querySelector('[data-note-dirty="true"]') || window.confirm('Le note non salvate andranno perse. Continuare senza salvarle?')
 }
 
+// Home screen: what to eat on a day, and a one-tap check-in for today's meals.
 export function TodayDiary({ date, onDateChange }: {
   date: string | null
   onDateChange: (date: string | null) => void
@@ -44,22 +41,23 @@ export function TodayDiary({ date, onDateChange }: {
   const [acting, setActing] = useState(false)
   const [actionError, setActionError] = useState<{ date: string; message: string } | null>(null)
   const actionLock = useRef(false)
-  const calendarRef = useRef<HTMLElement>(null)
+  const rootRef = useRef<HTMLElement>(null)
   const today = diary.day?.today ?? todayInRome()
   const selectedDate = date ?? today
   // The route is authoritative even before the hook has opened its new date.
   const day = diary.day?.date === selectedDate ? diary.day : null
-  const weekStart = mondayOf(selectedDate)
   const busy = diary.loading || diary.saving || acting
-  const readOnly = selectedDate !== today
-  const future = selectedDate > today
+  const isToday = selectedDate === today
   const hasDiet = Boolean(day?.validVersion || day?.plannedVersion)
-  const canRecord = Boolean(day?.snapshotId) && !readOnly && !busy && !diary.conflict
+  const canRecord = Boolean(day?.snapshotId) && isToday && !busy && !diary.conflict
   const error = diary.error || (actionError?.date === selectedDate ? actionError.message : '')
+  const recorded = day?.meals.filter((meal) => meal.checkIn !== null).length ?? 0
+  const followed = day?.meals.filter((meal) => meal.checkIn?.followed).length ?? 0
+  const dayLabel = dayFormatter.format(new Date(`${selectedDate}T12:00:00Z`))
 
   useBlocker({
-    shouldBlockFn: () => !confirmDiscardNotes(calendarRef.current),
-    enableBeforeUnload: () => Boolean(calendarRef.current?.querySelector('[data-note-dirty="true"]')),
+    shouldBlockFn: () => !confirmDiscardNotes(rootRef.current),
+    enableBeforeUnload: () => Boolean(rootRef.current?.querySelector('[data-note-dirty="true"]')),
   })
 
   async function perform(action: () => Promise<void>) {
@@ -77,209 +75,146 @@ export function TodayDiary({ date, onDateChange }: {
     }
   }
 
+  function goTo(next: string | null) {
+    if (confirmDiscardNotes(rootRef.current)) onDateChange(next)
+  }
+
   return (
-    <section className="calendar" ref={calendarRef} aria-labelledby="calendar-title" aria-busy={busy}>
-      <header className="calendar-heading">
-        <div>
-          <span className="calendar-eyebrow">Calendario</span>
-          <h1 id="calendar-title"><time dateTime={selectedDate}>{fullDateFormatter.format(new Date(`${selectedDate}T12:00:00Z`))}</time></h1>
+    <section className="today" ref={rootRef} aria-labelledby="today-title" aria-busy={busy}>
+      <header className="today-heading">
+        <button type="button" className="today-arrow" aria-label="Giorno precedente" disabled={busy}
+          onClick={() => goTo(adjacentDate(selectedDate, -1))}>←</button>
+        <div className="today-title">
+          <span className="eyebrow">{isToday ? 'Oggi' : selectedDate < today ? 'Giorno passato' : 'In programma'}</span>
+          <h1 id="today-title"><time dateTime={selectedDate}>{dayLabel}</time></h1>
         </div>
-        <details className="calendar-date-picker">
-          <summary aria-label="Scegli una data">Data</summary>
-          <label className="calendar-date" htmlFor="calendar-date">Vai alla data
-            <input id="calendar-date" type="date" value={selectedDate} disabled={busy} onChange={(event) => {
-              const nextDate = event.currentTarget.value
-              if (event.currentTarget.validity.valid && /^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
-                onDateChange(nextDate)
-                event.currentTarget.closest('details')?.removeAttribute('open')
-              }
-            }} />
-          </label>
-        </details>
+        <button type="button" className="today-arrow" aria-label="Giorno successivo" disabled={busy}
+          onClick={() => goTo(adjacentDate(selectedDate, 1))}>→</button>
       </header>
+      {!isToday && (
+        <button type="button" className="text-button today-back" disabled={busy} onClick={() => goTo(null)}>Torna a oggi</button>
+      )}
 
-      <nav className="calendar-navigation" aria-label="Scegli il giorno del calendario">
-        <div className="calendar-week-controls">
-          <button type="button" className="secondary-button calendar-week-arrow" aria-label="Settimana precedente" disabled={busy}
-            onClick={() => onDateChange(adjacentDate(selectedDate, -7))}><span aria-hidden="true">←</span></button>
-          <p className="calendar-week-label">{weekDateFormatter.format(new Date(`${weekStart}T12:00:00Z`))} – {weekDateFormatter.format(new Date(`${adjacentDate(weekStart, 6)}T12:00:00Z`))}</p>
-          {selectedDate !== today && <button type="button" className="secondary-button calendar-today-shortcut" disabled={busy} onClick={() => onDateChange(null)}>Oggi</button>}
-          <button type="button" className="secondary-button calendar-week-arrow" aria-label="Settimana successiva" disabled={busy}
-            onClick={() => onDateChange(adjacentDate(selectedDate, 7))}><span aria-hidden="true">→</span></button>
-        </div>
-        <div className="calendar-week-days">
-          {Array.from({ length: 7 }, (_, index) => {
-            const stripDate = adjacentDate(weekStart, index)
-            const selected = stripDate === selectedDate
-            const isToday = stripDate === today
-            const value = new Date(`${stripDate}T12:00:00Z`)
-            return (
-              <button key={stripDate} type="button" className="calendar-week-day" disabled={busy}
-                aria-pressed={selected} aria-current={isToday ? 'date' : undefined}
-                aria-label={`${fullDateFormatter.format(value)}${isToday ? ', oggi' : ''}${selected ? ', selezionato' : ''}`}
-                onClick={() => { if (!selected) onDateChange(stripDate) }}>
-                <span className="calendar-week-day-name">{value.toLocaleDateString('it-IT', { weekday: 'short', timeZone: 'Europe/Rome' })}</span>
-                <span className="calendar-week-day-number">{value.getUTCDate()}</span>
-                <span className="calendar-week-day-mark">{isToday ? 'Oggi' : selected ? 'Scelto' : '\u00a0'}</span>
-              </button>
-            )
-          })}
-        </div>
-      </nav>
-
-      <div className="calendar-feedback" aria-live="polite">
-        {diary.loading && <p role="status">Caricamento della giornata…</p>}
-        {(diary.saving || acting) && !diary.loading && <p role="status">Salvataggio in corso…</p>}
-        {error && !diary.conflict && <p className="calendar-error" role="alert">{error}</p>}
+      <div className="today-feedback" aria-live="polite">
+        {diary.loading && <p role="status">Caricamento…</p>}
         {error && !diary.conflict && (
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => {
-            if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.reload())
-          }}>Riprova caricamento</button>
+          <div className="today-error" role="alert">
+            <p>{error}</p>
+            <button type="button" className="text-button" disabled={busy} onClick={() => {
+              if (confirmDiscardNotes(rootRef.current)) void perform(() => diary.reload())
+            }}>Riprova</button>
+          </div>
         )}
         {diary.conflict && (
-          <div className="calendar-conflict" role="alert">
-            <p>Il diario è stato modificato altrove. Le tue modifiche restano aperte in questa pagina: scegli quali mantenere.</p>
-            <div className="calendar-actions">
-              <button type="button" className="secondary-button" disabled={busy} onClick={() => {
-                if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.resolveConflict('local'))
-              }}>Usa i miei check-in</button>
-              <button type="button" className="secondary-button" disabled={busy} onClick={() => {
-                if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.resolveConflict('server'))
-              }}>Mantieni quelli sul server</button>
+          <div className="today-error" role="alert">
+            <p>Questi pasti sono stati registrati anche da un altro dispositivo.</p>
+            <div className="today-actions">
+              <button type="button" className="text-button" disabled={busy} onClick={() => {
+                if (confirmDiscardNotes(rootRef.current)) void perform(() => diary.resolveConflict('local'))
+              }}>Usa i miei</button>
+              <button type="button" className="text-button" disabled={busy} onClick={() => {
+                if (confirmDiscardNotes(rootRef.current)) void perform(() => diary.resolveConflict('server'))
+              }}>Tieni gli altri</button>
             </div>
-            {error && <p className="calendar-error" role="alert">{error}</p>}
           </div>
         )}
       </div>
 
-      {day ? day.meals.length > 0 ? (
+      {day && day.meals.length > 0 && (
         <>
-          <div className="calendar-day-heading">
-            <p className="calendar-mode">{future ? 'Pasti pianificati · sola lettura' : readOnly ? 'Storico · sola lettura' : 'I pasti di oggi'}</p>
-            {!readOnly && (
-              <button type="button" className="primary-button" disabled={!canRecord} onClick={() => {
-                if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.followAll())
-              }}>Tutto seguito</button>
-            )}
-          </div>
-          <div className="calendar-plan">
-            <div className="calendar-plan-line">
-              <p>{day.meals.some((meal) => meal.checkIn !== null) ? 'Pasti e registrazioni salvate' : 'Giornata aggiunta al calendario'}</p>
-              <Link to="/settimana" search={{ start: weekStart, date: selectedDate }}>Rivedi in Settimana →</Link>
-            </div>
-            {day.plannedVersion?.id !== day.validVersion?.id && <p className="calendar-warning">La pianificazione usa una dieta diversa da quella valida per questa data. Rivedi la settimana se vuoi aggiornarla.</p>}
-          </div>
-          <ol className="calendar-meals">
+          {isToday && (
+            <p className="today-progress">
+              {recorded === 0 ? 'Tocca «Seguito» dopo ogni pasto.' : `${followed} di ${day.meals.length} pasti seguiti`}
+            </p>
+          )}
+          <ol className="today-meals">
             {day.meals.map((meal) => (
-              <DiaryMeal key={`${day.date}-${meal.plan.slot}`} meal={meal} readOnly={readOnly} disabled={!canRecord}
-                record={(followed, note) => perform(() => diary.record(meal.plan.slot, followed, note))} />
+              <TodayMeal key={`${day.date}-${meal.plan.slot}`} meal={meal} editable={isToday} disabled={!canRecord}
+                record={(nextFollowed, note) => perform(() => diary.record(meal.plan.slot, nextFollowed, note))} />
             ))}
           </ol>
-          <details className="calendar-provenance">
-            <summary>Versione e origine del piano</summary>
-            <div>
-              <p>Piano della giornata: <strong>{day.plannedVersion?.label ?? (day.plannedVersion ? `Versione ${day.plannedVersion.id}` : 'Nessuna versione disponibile')}</strong>.</p>
-              {day.plannedVersion?.id !== day.validVersion?.id && (
-                <p>La versione valida per questa data è {day.validVersion?.label ?? (day.validVersion ? `Versione ${day.validVersion.id}` : 'non disponibile')}; il piano mostrato conserva la versione della pianificazione.</p>
-              )}
-              <p>I pasti già registrati conservano il piano della prima registrazione, anche se la pianificazione cambia.</p>
-              <Link to="/dieta">Consulta o cambia la dieta →</Link>
-            </div>
-          </details>
-          <p className="calendar-help calendar-status-help">Non registrato non significa non seguito. Le note si salvano esplicitamente; l’orario del check-in è automatico (Europe/Rome).</p>
-        </>
-      ) : (
-        <div className="calendar-empty">
-          <h2>{selectedDate < today ? 'Nessun pasto nello storico' : hasDiet ? 'Giornata da pianificare' : 'Nessuna dieta per questa data'}</h2>
-          <p>
-            {selectedDate < today
-              ? 'Non ci sono pasti aggiunti o registrazioni per questa data.'
-              : hasDiet
-                ? 'Scegli i pasti in Settimana e aggiungi la giornata al calendario. Qui compaiono solo le giornate aggiunte e le registrazioni già salvate.'
-                : 'Attiva una dieta prima di scegliere i pasti da aggiungere al calendario.'}
-          </p>
-          {selectedDate < today ? (
-            <button className="primary-button" type="button" onClick={() => onDateChange(null)}>Torna a oggi</button>
-          ) : hasDiet ? (
-            <Link className="primary-button" to="/settimana" search={{ start: weekStart, date: selectedDate }}>Pianifica la giornata</Link>
-          ) : (
-            <Link className="primary-button" to="/dieta">Apri Dieta</Link>
+          {isToday && day.meals.some((meal) => meal.checkIn?.followed !== true) && (
+            <button type="button" className="secondary-button today-all" disabled={!canRecord} onClick={() => {
+              if (confirmDiscardNotes(rootRef.current)) void perform(() => diary.followAll())
+            }}>Segna tutto come seguito</button>
           )}
-        </div>
-      ) : !diary.loading && (
-        <div className="calendar-empty">
-          <p>Giornata non disponibile. Riprova a caricarla.</p>
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => {
-            if (selectedDate === today) {
-              if (confirmDiscardNotes(calendarRef.current)) void perform(() => diary.reload())
-            }
-            else onDateChange(null)
-          }}>{selectedDate === today ? 'Ricarica oggi' : 'Torna a oggi'}</button>
-          <Link to="/dieta">Vai alla dieta →</Link>
+          {selectedDate >= today && (
+            <Link className="text-button today-week-link" to="/settimana" search={{ start: mondayOf(selectedDate), date: selectedDate }}>
+              Cambia i pasti di questo giorno →
+            </Link>
+          )}
+        </>
+      )}
+
+      {day && day.meals.length === 0 && (
+        <div className="today-empty">
+          {selectedDate < today ? (
+            <p>Nessun pasto registrato in questo giorno.</p>
+          ) : hasDiet ? (
+            <>
+              <p>Prima scegli i pasti di questo giorno.</p>
+              <Link className="primary-button" to="/settimana" search={{ start: mondayOf(selectedDate), date: selectedDate }}>Scegli i pasti</Link>
+            </>
+          ) : (
+            <>
+              <p>Non c’è ancora una dieta attiva per questa data.</p>
+              <Link className="primary-button" to="/dieta">Carica la dieta</Link>
+            </>
+          )}
         </div>
       )}
     </section>
   )
 }
 
-function DiaryMeal({ meal, readOnly, disabled, record }: {
+function TodayMeal({ meal, editable, disabled, record }: {
   meal: DiaryDay['meals'][number]
-  readOnly: boolean
+  editable: boolean
   disabled: boolean
   record: (followed: boolean, note: string | null) => Promise<void>
 }) {
   const { plan, checkIn } = meal
-  const mealRef = useRef<HTMLLIElement>(null)
+  const itemRef = useRef<HTMLLIElement>(null)
   const label = SLOT_LABELS[plan.slot]
-  const status = checkIn === null ? 'Non registrato' : checkIn.followed ? 'Seguito' : 'Non seguito'
+  const state = checkIn === null ? 'open' : checkIn.followed ? 'followed' : 'skipped'
 
   return (
-    <li className="calendar-meal" ref={mealRef}>
-      <div className="calendar-meal-heading">
-        <div>
-          <h3>{label}</h3>
-          <p className="calendar-meal-state" data-followed={checkIn?.followed}>
-            {status}{checkIn?.note && <span className="calendar-note-indicator"> · Nota salvata</span>}
-          </p>
-        </div>
-        {!readOnly && (
-          <button type="button" className="secondary-button calendar-quick-follow" aria-label={`${label}: seguito`}
+    <li className="today-meal" data-state={state} ref={itemRef}>
+      <div className="today-meal-heading">
+        <h2>{label}</h2>
+        {editable ? (
+          <button type="button" className="today-check" aria-label={`${label}: seguito`}
             aria-pressed={checkIn?.followed === true} disabled={disabled} onClick={() => {
-              if (confirmDiscardNotes(mealRef.current)) void record(true, checkIn?.note ?? null)
-            }}>Seguito</button>
+              if (checkIn?.followed === true || !confirmDiscardNotes(itemRef.current)) return
+              void record(true, checkIn?.note ?? null)
+            }}>
+            <span aria-hidden="true">✓</span> Seguito
+          </button>
+        ) : checkIn && (
+          <span className="today-status">{checkIn.followed ? 'Seguito' : 'Non seguito'}</span>
         )}
       </div>
-      <div className="calendar-meal-foods">
-        {plan.free ? (
-          <div className="calendar-free">
-            <strong>Pasto libero pianificato</strong>
-            <p>{plan.free.description ?? 'Nessuna descrizione indicata.'}</p>
-            <p className="calendar-help">Conta come seguito quando lo registri. Nessun alimento o valore nutrizionale aggiunto.</p>
-          </div>
-        ) : <PlannedMealContent meal={plan} />}
-      </div>
-      <details className="calendar-meal-details">
-        <summary aria-label={`Dettagli di ${label}`}>{readOnly || plan.free ? 'Nota e orario' : 'Nota e non seguito'}</summary>
-        <div>
-          {checkIn && (
-            <p className="calendar-timestamp">Registrato il <time dateTime={new Date(checkIn.recordedAt).toISOString()}>{new Date(checkIn.recordedAt).toLocaleString('it-IT', {
-              dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Rome',
-            })}</time> · Europe/Rome</p>
-          )}
-          {readOnly ? (
-            <p className="calendar-saved-note"><strong>Nota:</strong> {checkIn?.note ?? 'Nessuna nota salvata.'}</p>
+      {plan.free ? (
+        <p className="today-free"><strong>Pasto libero</strong>{plan.free.description ? ` · ${plan.free.description}` : ''}</p>
+      ) : <MealFoods meal={plan} />}
+      {checkIn && !checkIn.followed && <p className="today-skipped">Non seguito</p>}
+      {(editable || checkIn?.note) && (
+        <details className="today-more">
+          <summary>{checkIn?.note ? 'Nota' : 'Nota o non seguito'}</summary>
+          {editable ? (
+            <NoteForm key={JSON.stringify(checkIn)} meal={meal} disabled={disabled} record={record} />
           ) : (
-            <MealNoteForm key={JSON.stringify(checkIn)} meal={meal} disabled={disabled} record={record} />
+            <p>{checkIn?.note}</p>
           )}
-        </div>
-      </details>
+        </details>
+      )}
     </li>
   )
 }
 
-// Reset only the draft when authoritative content changes, including a different
-// server note at the same revision. The surrounding <details> stays mounted.
-function MealNoteForm({ meal, disabled, record }: {
+// Reset only the draft when authoritative content changes. The surrounding
+// <details> stays mounted.
+function NoteForm({ meal, disabled, record }: {
   meal: DiaryDay['meals'][number]
   disabled: boolean
   record: (followed: boolean, note: string | null) => Promise<void>
@@ -288,27 +223,21 @@ function MealNoteForm({ meal, disabled, record }: {
   const [note, setNote] = useState(checkIn?.note ?? '')
   const noteValue = note.trim() || null
   const dirty = noteValue !== (checkIn?.note ?? null)
-  const label = SLOT_LABELS[plan.slot]
-  const noteId = `calendar-note-${plan.slot}`
-  const noteHelpId = `${noteId}-help`
+  const noteId = `today-note-${plan.slot}`
 
   return (
-    <form className="calendar-note-form" data-note-dirty={dirty} onSubmit={(event) => {
+    <form className="today-note" data-note-dirty={dirty} onSubmit={(event) => {
       event.preventDefault()
       if (!disabled && dirty) void record(checkIn?.followed ?? true, noteValue)
     }}>
-      <label htmlFor={noteId}>Nota facoltativa · {label}</label>
-      <textarea id={noteId} value={note} maxLength={CHECK_IN_NOTE_MAX_LENGTH} rows={3} disabled={disabled}
-        aria-describedby={noteHelpId} onChange={(event) => setNote(event.currentTarget.value)} />
-      <p id={noteHelpId} className="calendar-help">
-        {note.length}/{CHECK_IN_NOTE_MAX_LENGTH} caratteri. {dirty ? 'Nota non salvata: usa Salva nota prima di uscire.' : 'Le note non si salvano automaticamente.'}
-        {!checkIn && ' Salvando la nota registri anche il pasto come seguito.'}
-      </p>
-      <div className="calendar-actions">
-        <button type="submit" className="secondary-button" disabled={disabled || !dirty}>{checkIn ? 'Salva nota' : 'Salva nota e segna seguito'}</button>
+      <label htmlFor={noteId}>Nota</label>
+      <textarea id={noteId} value={note} maxLength={CHECK_IN_NOTE_MAX_LENGTH} rows={2} disabled={disabled}
+        onChange={(event) => setNote(event.currentTarget.value)} />
+      <div className="today-actions">
+        <button type="submit" className="text-button" disabled={disabled || !dirty}>Salva nota</button>
         {!plan.free && (
-          <button type="button" className="secondary-button" aria-label={`${label}: non seguito`} aria-pressed={checkIn?.followed === false}
-            disabled={disabled} onClick={() => void record(false, noteValue)}>Non seguito</button>
+          <button type="button" className="text-button" aria-pressed={checkIn?.followed === false}
+            disabled={disabled || checkIn?.followed === false} onClick={() => void record(false, noteValue)}>Segna non seguito</button>
         )}
       </div>
     </form>

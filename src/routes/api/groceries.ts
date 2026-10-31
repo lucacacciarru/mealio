@@ -12,7 +12,6 @@ import {
   setGroceryCheck,
   setGroceryFoodRules,
   setGroceryManualItemChecked,
-  setGroceryPantry,
 } from '../../server/groceries'
 import { HttpError, readBodyUpTo, requestHasSameOrigin } from '../../server/http'
 
@@ -32,7 +31,6 @@ const line = { weekStart, round, foodKey, unit, cooked: z.boolean() }
 const GroceryActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('check'), ...line, name, quantity: amount.nullable() }).strict(),
   z.object({ action: z.literal('uncheck'), ...line }).strict(),
-  z.object({ action: z.literal('setPantry'), weekStart, foodKey, unit, name, quantity: amount.nullable() }).strict(),
   z
     .object({
       action: z.literal('addManual'),
@@ -66,8 +64,6 @@ function applyGroceryAction(action: z.infer<typeof GroceryActionSchema>) {
       return setGroceryCheck(action)
     case 'uncheck':
       return clearGroceryCheck(action)
-    case 'setPantry':
-      return setGroceryPantry(action)
     case 'addManual':
       return addGroceryManualItem(action)
     case 'setManualChecked':

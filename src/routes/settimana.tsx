@@ -8,7 +8,7 @@ export const Route = createFileRoute('/settimana')({
     const date = z.iso.date().safeParse(search.date)
     return { start: start.success ? start.data : undefined, date: date.success ? date.data : undefined }
   },
-  head: () => ({ meta: [{ title: 'Pianifica la settimana · Mealio' }] }),
+  head: () => ({ meta: [{ title: 'Settimana · Mealio' }] }),
   component: WeekPage,
 })
 
@@ -17,11 +17,7 @@ function WeekPage() {
   const navigate = Route.useNavigate()
   return (
     <section className="screen-content" aria-labelledby="week-page-title">
-      <header className="screen-heading">
-        <div>
-          <h1 id="week-page-title">La tua settimana</h1>
-        </div>
-      </header>
+      <h1 className="visually-hidden" id="week-page-title">Settimana</h1>
       <WeekPlanner
         weekStart={start ?? null}
         selectedDate={date ?? null}

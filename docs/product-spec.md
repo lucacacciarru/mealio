@@ -8,7 +8,7 @@
 
 Mealio is a private app with one primary flow: **upload the professional's diet PDF → choose that diet's meals and variants for a week → generate the weekly shopping list**. It follows the plan; it does not create diets or provide medical or nutritional advice.
 
-The app is online-only and usable from an iPhone or a computer. Weekly planning is the home; diet/PDF management and groceries are the other two main screens. Existing diary/history remains a secondary feature, not a prerequisite for planning or shopping.
+The app is online-only and usable from an iPhone or a computer. Its three screens are **Oggi** (the home: today's meals and a one-tap check-in), **Settimana** (choosing the week's meals) and **Spesa** (the shopping list). **Dieta** (uploading and activating the PDF) is used rarely and sits outside the main navigation. Check-ins are optional and never a prerequisite for planning or shopping.
 
 ## Product principles and rules
 
@@ -34,7 +34,7 @@ Expected flow:
 2. In the same explicit action (**Carica e analizza**, which states that the PDF goes to an AI model through OpenRouter), send the PDF through OpenRouter for structured extraction, routing inference only to zero-data-retention endpoints and selecting the native PDF parser. Require account-level Plugins settings not to enforce a non-native `file-parser` engine, because request-level ZDR does not apply to plugin backends. Retrying is another explicit action.
 3. Normalize foods and units against the catalog.
 4. Validate structure, quantities, units, alternatives, and equivalences; flag ambiguity instead of filling gaps by assumption.
-5. Show a read-only list of meals and permitted variants with a day selector. Preserve printed quantities and units, raw/cooked/unspecified state, notes, equivalences and warnings; PDF references are expandable. There is no per-meal review or manual correction. The latest usable saved import opens on return; uploading another PDF and browsing older imports are secondary actions.
+5. Show a read-only list of meals and permitted variants with a day selector. Preserve printed quantities and units, raw/cooked/unspecified state, notes, equivalences and warnings; the original PDF stays one tap away. There is no per-meal review or manual correction. The latest usable saved import opens on return as a single status card (active since a date, or to activate); uploading another PDF is a secondary action. Older imports remain stored but are not browsed in the UI.
 6. **Usa questa dieta** explicitly activates a new version with a start date, only while the original PDF is available. **Pianifica la settimana** opens the applicable week. Equivalences with unclear scopes are shown but not applied; retain previous versions.
 
 Import must cover all seven days and five meals, preserving alternatives, notes, quantities, raw/cooked state, and equivalences with their scope and provenance. Automated extraction must never activate a plan directly.
@@ -47,28 +47,29 @@ The catalog maps plan names to normalized foods and retains reusable aliases. In
 
 ### 3. Weekly planning
 
-A new week is a draft of the diet valid on each date. Required meal variants and explicit food alternatives remain undecided until the user chooses them; optional equivalences never replace original foods automatically. Open one meal editor at a time to choose its foods, then **Aggiungi al calendario** publishes only that day after all required choices are resolved. Complete but unpublished drafts stay outside the calendar and shopping list. The user can:
+A new week starts from the diet valid on each date. Required meal variants and explicit food alternatives remain undecided until the user chooses them; optional equivalences never replace original foods automatically. A day is **ready** as soon as none of its meals has an open choice: there is no separate publication step. Only ready days appear in Oggi and in the shopping list. The planner lists the meals still to decide and, once a meal is decided, opens the next open meal of that day. The user can:
 
 - swap two full days from the same version;
 - move a meal by swapping it with the meal in the same slot on another day;
 - choose a substitution allowed by the meal or an applicable equivalence;
-- choose the weekly free meal.
+- choose the weekly free meal from the meal itself;
+- explicitly repeat last week's choices: each meal still open from today on takes the choices of the same plan meal (version, plan day and slot) last week, only when they resolve it. Swaps and the free meal are not repeated, so no meal is copied or dropped.
 
-The first valid edit or day publication atomically saves a snapshot of the week's meals and choices. An invalid action creates no saved week. Draft saves never publish other meals or dates, and opening groceries never publishes a week. Editing choices, swaps, free-meal changes and diet refreshes return only affected dates to draft until explicitly added again. Groceries recalculate from published dates; past choices, saved snapshots and recorded diary meals are not silently reinterpreted. Older weekly snapshots retain their choices but do not acquire assumed day confirmations.
+The first valid edit atomically saves a snapshot of the week's meals and choices. An invalid action creates no saved week, and opening groceries never saves one. Reopening a choice makes that day not ready again until it is decided. Groceries recalculate from ready days; past choices, saved snapshots and recorded diary meals are not silently reinterpreted. Day publication records written by earlier versions (`week_days`) are kept but no longer read.
 
-### 4. Groceries and pantry
+### 4. Groceries
 
-The list is derived only from days explicitly added to the calendar, excluding draft days and free-meal items. It sums quantities by food, subtracts pantry stock and “always at home” items, accounts for use dates and storage, and groups items by aisle. Dates still in draft are listed with a planner link, never counted as foods to buy.
+The list is derived only from ready days, excluding free-meal items. It sums quantities by food, leaves out “always at home” items, accounts for use dates and storage, and groups items by aisle. Days from today on that still have open choices are named with a planner link, never counted as foods to buy.
 
-Show one weekly shopping list, summing the same food/unit/state across the internal Monday/Thursday accounting rounds. The user does not choose or configure rounds to shop. Checking a weekly row records its contributing purchases online; partial failures remain explicit. After meal changes, show differences against actual purchases. Pantry and food rules are optional, closed details. Checkmarks, manual items and pantry quantities remain separate from the derived list.
+Show one weekly shopping list, summing the same food/unit/state across the internal Monday/Thursday accounting rounds. The user does not choose or configure rounds to shop. Checking a weekly row records its contributing purchases online; taken rows sink to the bottom of their aisle; partial failures remain explicit. When meal changes need more of a food already bought, the row shows the amount to add. Per food, the user can only set the aisle and mark it “always at home”; existing unit, package and storage rules keep applying. Checkmarks and manual items remain separate from the derived list. Pantry stock recorded by earlier versions stays stored but no longer changes the list.
 
-### 5. Calendar, Today and diary
+### 5. Oggi and check-ins
 
 Each meal has a binary check-in: **followed** or **not followed**, with an optional note. A meal without a check-in is “not recorded,” not “not followed.” The user can record all meals for a day with one action when they were followed.
 
-The secondary diary at `/calendario` shows only meals of explicitly added days and previously recorded meals, with printed quantities and explicit missing data. A day still in draft has an intentional empty state linked to that exact planner date, never an automatic diet preview or unresolved variant list. A day selector opens past history or future planned meals; only today's meals offer online check-ins. Notes and recording details open on demand. Server validation rejects new check-ins for unpublished dates even when an older snapshot exists; recorded meal snapshots remain immutable.
+**Oggi** (`/`, `/calendario` redirects there) shows only meals of ready days and previously recorded meals, with printed quantities and explicit missing data. A day with open choices has an empty state linked to that exact planner date, never an automatic diet preview or unresolved variant list. Previous/next day arrows open past history or future planned meals; only today's meals offer online check-ins. Notes and “not followed” open on demand. Server validation rejects new check-ins for days with open choices even when an older snapshot exists; recorded meal snapshots remain immutable.
 
-Primary navigation contains only **Settimana**, **Spesa**, and **Dieta**. The diary is a secondary link. Importing the professional's diet is separate from organizing a week, and neither check-ins nor advanced grocery settings are required to complete the core flow.
+Primary navigation contains only **Oggi**, **Settimana** and **Spesa**; **Dieta** is a secondary link. Importing the professional's diet is separate from organizing a week, and neither check-ins nor grocery settings are required to complete the core flow.
 
 ### 6. Macros and statistics
 
@@ -101,7 +102,7 @@ Notifications must be idempotent, respect the `Europe/Rome` time zone, and not d
 - **Catalog:** foods, aliases, units, nutrient sources, and raw/cooked state.
 - **Versioned plan:** private source document, validity period, days, meals, components, alternatives, equivalences, and provenance.
 - **Week:** real dates, plan version, meal snapshots, substitutions, swaps, and free meal.
-- **Groceries:** one weekly list, internal purchase-round identities, optional pantry, checkmarks, and manual items.
+- **Groceries:** one weekly list, internal purchase-round identities, checkmarks, and manual items.
 - **Diary:** check-ins, body measurements, and workouts.
 - **System:** imports, notifications, push subscriptions, and idempotent send records.
 
@@ -110,7 +111,7 @@ Key invariants:
 1. A date uses the plan version valid for that date.
 2. Plan changes do not retroactively alter already planned meals or recorded data.
 3. Swaps and moves preserve meals; a move is always a swap within the same slot.
-4. Groceries are derived from the week's current plan; checkmarks, pantry, and manual items are separate state.
+4. Groceries are derived from the week's ready days; checkmarks and manual items are separate state.
 5. Automated extraction never activates a plan by itself; the user activates it explicitly after seeing the summary.
 
 ## Planned architecture
@@ -129,8 +130,8 @@ Prototype items to verify: SQLite driver compatibility with the Node runtime, ac
 
 ## Security and data handling
 
-- Single-user password access with a long-lived session; cookies use `HttpOnly`, `Secure`, and `SameSite`; rate-limit login attempts.
-- Store only the password hash and keep secrets in environment variables, never in the repository.
+- Single-user password access, chosen in the app on first run and changeable from the app, with a session renewed while in use; cookies use `HttpOnly`, `Secure`, and `SameSite`; rate-limit login attempts.
+- Store only the password hash (in the database) and keep other secrets in environment variables, never in the repository.
 - Protect the scheduler endpoint with a shared secret; require a valid session to manage push subscriptions.
 - Store PDFs and personal data only in the application's private storage. Do not commit PDFs, real meals, personal nutrition values, body measurements, screenshots, or fixtures derived from real data.
 - Use synthetic examples in tests. Import regression tests must not include the personal PDF or its extraction in the repository.
@@ -149,7 +150,7 @@ The board's development order is based on prerequisites and dependencies, not is
 ### Phase completion criteria
 
 - **Phase 1:** import a plan, see its summary, and activate it without direct database changes; previous versions remain accessible.
-- **Phase 2:** import a PDF, explicitly use its meals, choose variants and day swaps in drafts, explicitly add complete days to the calendar, generate one shopping list from those days, and check purchases online. No variant is selected automatically. Existing choices and recorded history remain intact; offline operation is not an acceptance criterion.
+- **Phase 2:** import a PDF, explicitly use its meals, choose variants and day swaps, generate one shopping list from the ready days, and check purchases online. No variant is selected automatically except when the user explicitly repeats last week's choices. Existing choices and recorded history remain intact; offline operation is not an acceptance criterion.
 - **Phase 3:** macros and statistics are traceable to their sources; the body diary is available over time; the dashboard reports insufficient coverage.
 - **Phase 4:** push and scheduler run for two weeks without duplicate or missed sends and respect local time across daylight-saving changes.
 

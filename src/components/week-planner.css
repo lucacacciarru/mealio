@@ -1,0 +1,29 @@
+.week-planner { width: min(100%, 720px); margin: 0 auto; }
+.week-summary-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.week-summary-done { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; border-color: #cfe0cf; background: #f6faf3; }
+.week-open-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.week-open-chip { min-height: 36px; padding: 6px 12px; border: 1px solid #e6d6a6; border-radius: 999px; background: #fdf9ee; color: #62502a; font: inherit; font-size: 13px; }
+.week-open-more { align-self: center; padding: 0 4px; color: var(--muted); font-size: 13px; }
+.week-open-chip:hover:not(:disabled) { background: #f7edcf; }
+.week-planner .planner-day-tabs { margin: 18px 0; }
+.planner-day-tab small { min-height: 12px; color: #9a7a2a; font-weight: 700; }
+.planner-day-tab[data-ready="true"] small { color: var(--green); }
+.planner-day-tab[data-past="true"] { opacity: .6; }
+.week-day-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.week-day-heading h3 { margin: 0 auto 0 0; font-size: 20px; letter-spacing: -.02em; }
+.week-day-heading h3::first-letter { text-transform: uppercase; }
+.week-day-menu { position: relative; }
+.week-day-menu > summary { display: flex; align-items: center; min-height: 40px; color: var(--green-dark); font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; }
+.week-day-menu > summary::-webkit-details-marker { display: none; }
+.week-day-menu[open] .meal-panel { position: absolute; top: 100%; right: 0; z-index: 5; width: min(320px, 80vw); padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: 0 12px 24px rgba(39, 51, 44, .08); }
+.week-planner .meal-card { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 16px; }
+.meal-card-open { border-color: #e6d6a6; }
+.meal-card-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 40px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+button.meal-card-toggle:disabled { cursor: default; }
+.meal-card-title { margin-right: auto; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.meal-card-cta { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; color: var(--green-dark); font-size: 13px; font-weight: 650; }
+.meal-card-cta-open { background: var(--green); color: white; }
+.week-planner .meal-card-editor { padding-top: 12px; }
+.week-form-hint { margin: 0; color: var(--muted); font-size: 13px; }
+.week-planner .week-form .secondary-button { margin-top: 0; }
+.week-day-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; text-align: center; }

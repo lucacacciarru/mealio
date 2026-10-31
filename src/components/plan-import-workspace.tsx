@@ -43,10 +43,6 @@ function planningWeek(validFrom: string | null): string {
   return date.toISOString().slice(0, 10)
 }
 
-function formatBytes(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function formatDate(isoDate: string): string {
   return new Date(`${isoDate}T00:00:00`).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
 }
@@ -55,16 +51,8 @@ function isAcceptedPdf(file: File): boolean {
   return file.name.toLowerCase().endsWith('.pdf') && file.size <= MAX_FILE_BYTES
 }
 
-function statusLabel(status: ImportStatus): string {
-  if (status === 'uploaded') return 'Da analizzare'
-  if (status === 'extracted') return 'Da attivare'
-  return 'Attivato'
-}
-
 export function PlanImportWorkspace() {
-  const [imports, setImports] = useState<ImportSummary[]>([])
   const [detail, setDetail] = useState<ImportDetail | null>(null)
-  const [openingId, setOpeningId] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [validFrom, setValidFrom] = useState(todayDate)
   const [busy, setBusy] = useState<BusyAction>(null)
@@ -80,7 +68,6 @@ export function PlanImportWorkspace() {
       .then(async (payload) => {
         if (cancelled) return
         const recent = [...payload.imports].sort((left, right) => right.createdAt - left.createdAt)
-        setImports(recent)
         const latest = recent.find((item) => item.sourceAvailable && item.status !== 'uploaded')
           ?? recent[0]
         if (latest) {
@@ -99,30 +86,6 @@ export function PlanImportWorkspace() {
     }
   }, [loadRevision])
 
-  function upsertImport(item: ImportSummary) {
-    const summary = summaryOf(item)
-    setImports((current) =>
-      current.some((existing) => existing.id === summary.id)
-        ? current.map((existing) => (existing.id === summary.id ? summary : existing))
-        : [summary, ...current].slice(0, 30),
-    )
-  }
-
-  async function openImport(id: string) {
-    setError('')
-    setNotice('')
-    setOpeningId(id)
-    try {
-      setDetail(await apiRequest<ImportDetail>(`/api/imports?id=${encodeURIComponent(id)}`))
-      setValidFrom(todayDate())
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Impossibile aprire l’importazione.')
-    } finally {
-      setOpeningId(null)
-    }
-  }
-
-
   async function analyze(target: ImportSummary) {
     setError('')
     setNotice('')
@@ -135,7 +98,6 @@ export function PlanImportWorkspace() {
       })
       const extracted = { ...summaryOf(target), status: 'extracted' as const }
       setDetail({ ...extracted, extraction, validFrom: null })
-      upsertImport(extracted)
       setNotice('Analisi completata.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Analisi non riuscita.')
@@ -172,7 +134,6 @@ export function PlanImportWorkspace() {
     }
     form.reset()
     setSelectedFile(null)
-    upsertImport(saved)
     setDetail({ ...saved, extraction: null, validFrom: null })
     setValidFrom(todayDate())
     await analyze(saved)
@@ -191,7 +152,6 @@ export function PlanImportWorkspace() {
         body: JSON.stringify({ action: 'activate', id: detail.id, validFrom }),
       })
       setDetail({ ...detail, status: 'activated', validFrom: result.validFrom })
-      upsertImport({ ...detail, status: 'activated' })
       setNotice(`Piano attivo dal ${formatDate(result.validFrom)}.`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Attivazione non riuscita.')
@@ -211,153 +171,109 @@ export function PlanImportWorkspace() {
     setSelectedFile(file)
   }
 
-  return (
-    <section className="plan-import-workspace" aria-label="Pasti della dieta">
+  const locked = busy !== null || loading
+  const uploadForm = (
+    <form className="diet-upload" onSubmit={uploadAndAnalyze}>
+      <label htmlFor="plan-pdf-file">PDF della dieta (massimo 15 MB)</label>
+      <input id="plan-pdf-file" type="file" accept="application/pdf,.pdf" onChange={handleFileChange} disabled={locked} />
+      <button className="primary-button" type="submit" disabled={locked || !selectedFile}>
+        {busy === 'upload' ? 'Caricamento…' : 'Carica e analizza'}
+      </button>
+      <p className="diet-privacy">
+        Il PDF resta privato e viene inviato a un modello AI tramite OpenRouter per leggere i pasti.
+      </p>
+    </form>
+  )
 
+  return (
+    <section className="plan-import-workspace" aria-label="La tua dieta">
       {error && (
-        <div role="alert">
-          <p className="message error-message">{error}</p>
-          <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => setLoadRevision((revision) => revision + 1)}>Riprova caricamento</button>
+        <div className="diet-alert" role="alert">
+          <p>{error}</p>
+          <button className="text-button" type="button" disabled={busy !== null} onClick={() => setLoadRevision((revision) => revision + 1)}>Riprova</button>
         </div>
       )}
-      {notice && <p className="message success-message" role="status">{notice}</p>}
-      {detail && openingId && <p className="loading-inline" role="status">Apertura del PDF…</p>}
+      {notice && <p className="diet-notice" role="status">{notice}</p>}
 
-      {detail ? (
-        <div className="import-detail-stack">
-          <div className="import-session-heading">
-            <div>
-              <h3>{detail.originalName}</h3>
-              <p>{formatBytes(detail.byteSize)} · {statusLabel(detail.status)}</p>
-            </div>
-            <div className="import-session-links">
-              {detail.sourceAvailable && (
-                <a
-                  className="text-button"
-                  href={`/api/imports?id=${encodeURIComponent(detail.id)}&file=1`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Apri il PDF
-                </a>
-              )}
-              <a className="text-button" href="#diet-other-pdfs">Altri PDF</a>
-            </div>
-          </div>
+      {loading && !detail && <p className="loading-inline" role="status">Caricamento…</p>}
 
-          {busy === 'extract' ? (
-            <section className="import-step-card" role="status">
-              <h3>Analisi in corso…</h3>
-              <p>L’AI sta leggendo il PDF: può volerci qualche minuto. Lascia aperta la pagina.</p>
-            </section>
-          ) : detail.status === 'uploaded' ? (
-            <section className="import-step-card">
-              <h3>Analisi non completata</h3>
-              {detail.sourceAvailable ? (
-                <>
-                  <p>Il PDF è salvato. Riprova: verrà inviato di nuovo all’AI tramite OpenRouter.</p>
-                  <button className="primary-button" type="button" onClick={() => void analyze(detail)} disabled={busy !== null}>
-                    Analizza di nuovo
+      {!loading && !detail && (
+        <section className="diet-card">
+          <h2>Carica la dieta del tuo professionista</h2>
+          <p>Mealio legge i pasti dal PDF. Poi scegli cosa mangiare ogni settimana e ottieni la lista della spesa.</p>
+          {uploadForm}
+        </section>
+      )}
+
+      {detail && (
+        <>
+          <section className="diet-card">
+            {busy === 'extract' ? (
+              <div role="status">
+                <h2>Sto leggendo il PDF…</h2>
+                <p>Può volerci qualche minuto. Lascia aperta la pagina.</p>
+              </div>
+            ) : detail.status === 'activated' ? (
+              <>
+                <span className="eyebrow">Dieta attiva</span>
+                <h2>{detail.validFrom ? `Dal ${formatDate(detail.validFrom)}` : 'Attiva'}</h2>
+                <Link className="primary-button" to="/settimana" search={{ start: planningWeek(detail.validFrom), date: undefined }}>Scegli i pasti della settimana</Link>
+              </>
+            ) : detail.status === 'extracted' ? (
+              detail.sourceAvailable ? (
+                <form className="diet-activate" onSubmit={activate}>
+                  <span className="eyebrow">Da attivare</span>
+                  <h2>Controlla i pasti letti, poi attiva la dieta</h2>
+                  <label htmlFor="import-valid-from">La seguo dal</label>
+                  <input
+                    id="import-valid-from"
+                    type="date"
+                    required
+                    value={validFrom}
+                    onChange={(event) => setValidFrom(event.currentTarget.value)}
+                    disabled={locked}
+                  />
+                  <button className="primary-button" type="submit" disabled={locked || !validFrom}>
+                    {busy === 'activate' ? 'Attivazione…' : 'Usa questa dieta'}
                   </button>
-                </>
+                </form>
               ) : (
-                <p>Il PDF originale non è più disponibile: caricalo di nuovo.</p>
-              )}
-            </section>
-          ) : null}
-
-          {detail.status === 'activated' && (
-            <section className="completed-card">
-              <h3>Dieta già attivata</h3>
-              <p>Puoi organizzare i pasti e le varianti settimana per settimana. Le settimane già salvate restano invariate.</p>
-              <Link className="primary-button" to="/settimana" search={{ start: planningWeek(detail.validFrom) }}>Pianifica la settimana</Link>
-            </section>
-          )}
-          {detail.status === 'extracted' &&
-            (detail.sourceAvailable ? (
-              <form className="activation-form import-step-card" onSubmit={activate}>
-                <h3>Usa questa dieta</h3>
-                <p>Scegli da quando seguirla. L’analisi da sola non attiva la dieta; le settimane già salvate restano invariate.</p>
-                <label htmlFor="import-valid-from">Attivo dal</label>
-                <input
-                  id="import-valid-from"
-                  type="date"
-                  required
-                  value={validFrom}
-                  onChange={(event) => setValidFrom(event.currentTarget.value)}
-                  disabled={busy !== null || openingId !== null}
-                />
-                <button className="primary-button" type="submit" disabled={busy !== null || openingId !== null || !validFrom}>
-                  {busy === 'activate' ? 'Attivazione…' : 'Usa questa dieta'}
+                <p>Il PDF originale non è più disponibile: caricalo di nuovo per attivare la dieta.</p>
+              )
+            ) : detail.sourceAvailable ? (
+              <>
+                <h2>Lettura del PDF non riuscita</h2>
+                <button className="primary-button" type="button" onClick={() => void analyze(detail)} disabled={busy !== null}>
+                  Riprova
                 </button>
-              </form>
+              </>
             ) : (
-              <section className="import-step-card" role="status">
-                <h3>Attivazione sospesa</h3>
-                <p>Il PDF originale non è disponibile: ripristinalo per attivare il piano.</p>
-              </section>
-            ))}
-
-          {detail.extraction && <PlanSummary key={detail.id} extraction={detail.extraction} />}
-        </div>
-      ) : loading || openingId ? (
-        <p className="loading-inline" role="status">Caricamento della dieta…</p>
-      ) : null}
-      <div className="diet-secondary" id="diet-other-pdfs">
-          <details className="diet-upload-details" open={!loading && !detail && imports.length === 0}>
-            <summary>{detail ? 'Carica un altro PDF' : 'Carica il PDF della dieta'}</summary>
-          <form className="import-upload-card" onSubmit={uploadAndAnalyze}>
-            <h3>Il PDF del professionista</h3>
-            <label htmlFor="plan-pdf-file">File PDF</label>
-            <input
-              id="plan-pdf-file"
-              type="file"
-              accept="application/pdf,.pdf"
-              onChange={handleFileChange}
-              disabled={busy !== null || loading || openingId !== null}
-            />
-            {selectedFile && <p className="field-hint">{selectedFile.name} · {formatBytes(selectedFile.size)}</p>}
-            <button className="primary-button" type="submit" disabled={busy !== null || loading || openingId !== null || !selectedFile}>
-              {busy === 'upload' ? 'Caricamento…' : 'Carica e analizza'}
-            </button>
-            <p className="privacy-note">
-              Premendo “Carica e analizza” acconsenti a inviare il PDF a un modello AI tramite OpenRouter. Il documento viene conservato in privato. Solo PDF, massimo 15 MB.
-            </p>
-            <details className="diet-technical-details">
-              <summary>Dettagli sul trattamento AI</summary>
-              <p>La richiesta usa solo endpoint a conservazione zero (ZDR) e il parser PDF nativo. Le impostazioni Plugin dell’account OpenRouter devono lasciare <code>file-parser</code> non forzato o impostarlo su <code>native</code>: ZDR non copre i backend dei plugin.</p>
-            </details>
-          </form>
-          </details>
-
-          <details className="import-history-card">
-            <summary>PDF caricati ({imports.length})</summary>
-            {imports.length === 0 ? (
-              <p className="empty-state">Non hai ancora caricato PDF.</p>
-            ) : (
-              <ul className="import-history-list">
-                {imports.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className="import-history-item"
-                      onClick={() => void openImport(item.id)}
-                      disabled={busy !== null || loading || openingId !== null}
-                    >
-                      <span>
-                        <strong>{item.originalName}</strong>
-                        <small>{new Date(item.createdAt).toLocaleString('it-IT')} · {formatBytes(item.byteSize)}</small>
-                      </span>
-                      <span className={`status-pill status-${item.status}`}>
-                        {item.sourceAvailable ? statusLabel(item.status) : 'PDF non disponibile'}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <p>Il PDF originale non è più disponibile: caricalo di nuovo.</p>
             )}
+            <p className="diet-file">
+              {detail.originalName}
+              {detail.sourceAvailable && (
+                <>
+                  {' · '}
+                  <a href={`/api/imports?id=${encodeURIComponent(detail.id)}&file=1`} target="_blank" rel="noreferrer">Apri il PDF</a>
+                </>
+              )}
+            </p>
+          </section>
+
+          {detail.extraction && (
+            <details className="diet-meals" open={detail.status === 'extracted'}>
+              <summary>Vedi i pasti della dieta</summary>
+              <PlanSummary key={detail.id} extraction={detail.extraction} />
+            </details>
+          )}
+
+          <details className="diet-meals">
+            <summary>Carica una nuova dieta</summary>
+            {uploadForm}
           </details>
-        </div>
+        </>
+      )}
     </section>
   )
 }
@@ -366,26 +282,16 @@ function PlanSummary({ extraction }: { extraction: PlanReview }) {
   const days = [...extraction.days].sort((left, right) => left.dayIndex - right.dayIndex)
   const [selectedDay, setSelectedDay] = useState(days[0]?.dayIndex ?? 0)
   const equivalences = extraction.equivalences.filter((equivalence) => !equivalence.removed)
-  const foodCount = days.reduce(
-    (total, day) =>
-      total + day.meals.reduce((sum, meal) => sum + meal.components.filter((component) => !component.removed).length, 0),
-    0,
-  )
   return (
     <section className="plan-summary" aria-labelledby="plan-summary-title">
-      <h3 id="plan-summary-title">Pasti e varianti dal PDF</h3>
-      <p className="plan-summary-counts">
-        {days.length} giorni · {foodCount} alimenti
-        {equivalences.length > 0 ? ` · ${equivalences.length} equivalenze` : ''}
-      </p>
-      <p className="summary-note">Riepilogo di sola lettura: Mealio non aggiunge alimenti, quantità o varianti. Controlla gli avvisi e confronta il PDF originale.</p>
+      <h3 className="visually-hidden" id="plan-summary-title">Pasti della dieta</h3>
       <WarningList warnings={extraction.warnings} />
       <div className="diet-day-picker" role="group" aria-label="Giorno della dieta">
         {days.map((day) => {
           const warnings = day.meals.reduce((total, meal) => total + mealWarnings(meal).length, 0)
           return (
-            <button className="secondary-button" type="button" key={day.dayIndex} aria-pressed={selectedDay === day.dayIndex} onClick={() => setSelectedDay(day.dayIndex)}>
-              {DAY_LABELS[day.dayIndex]}{warnings > 0 ? ` · ${warnings} avvisi` : ''}
+            <button type="button" key={day.dayIndex} aria-pressed={selectedDay === day.dayIndex} onClick={() => setSelectedDay(day.dayIndex)}>
+              {DAY_LABELS[day.dayIndex].slice(0, 3)}{warnings > 0 ? ' ⚠' : ''}
             </button>
           )
         })}
@@ -400,7 +306,7 @@ function PlanSummary({ extraction }: { extraction: PlanReview }) {
       ))}
       {equivalences.length > 0 && (
         <details className="summary-day">
-          <summary>Equivalenze</summary>
+          <summary>Equivalenze ({equivalences.length})</summary>
           <ul className="summary-equivalences">
             {equivalences.map((equivalence, index) => (
               <EquivalenceSummary key={index} equivalence={equivalence} extraction={extraction} />
@@ -490,19 +396,6 @@ function MealSummary({ meal }: { meal: Meal }) {
       )}
       {meal.review.notes && <p className="summary-note">{meal.review.notes}</p>}
       <WarningList warnings={mealWarnings(meal)} />
-      <details className="diet-provenance">
-        <summary>Riferimenti al PDF</summary>
-        {meal.source.page !== null && <p>Pagina {meal.source.page}</p>}
-        {meal.source.quote && <blockquote>{meal.source.quote}</blockquote>}
-        {components.map((component, index) => (
-          <div key={index}>
-            <strong>{component.review.label}</strong>
-            {component.source?.page != null && <span> · pagina {component.source.page}</span>}
-            {component.source?.quote && <blockquote>{component.source.quote}</blockquote>}
-            {component.review.notes && <p>{component.review.notes}</p>}
-          </div>
-        ))}
-      </details>
     </div>
   )
 }
@@ -564,18 +457,6 @@ function EquivalenceSummary({ equivalence, extraction }: { equivalence: Equivale
       )}
       {equivalence.review.note && <p className="summary-note">{equivalence.review.note}</p>}
       <WarningList warnings={warnings} />
-      <details className="diet-provenance">
-        <summary>Riferimenti al PDF</summary>
-        {equivalence.source?.page != null && <p>Pagina {equivalence.source.page}</p>}
-        {equivalence.source?.quote && <blockquote>{equivalence.source.quote}</blockquote>}
-        {items.map((item, index) => (
-          <div key={index}>
-            <strong>{item.review.label}</strong>
-            {item.source?.page != null && <span> · pagina {item.source.page}</span>}
-            {item.source?.quote && <blockquote>{item.source.quote}</blockquote>}
-          </div>
-        ))}
-      </details>
     </li>
   )
 }

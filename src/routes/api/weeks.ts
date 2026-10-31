@@ -5,9 +5,9 @@ import { hasValidSession } from '../../server/auth'
 import { HttpError, readBodyUpTo, requestHasSameOrigin } from '../../server/http'
 import {
   clearWeekFreeMeal,
-  confirmDay,
   getWeek,
   refreshWeek,
+  repeatPreviousWeekChoices,
   setWeekFreeMeal,
   setWeekMealChoices,
   swapWeekMeals,
@@ -24,7 +24,7 @@ const date = z.string().max(10)
 const weekStart = date
 const slot = z.enum(PLAN_SLOTS)
 const WeekActionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('confirmDay'), weekStart, date }).strict(),
+  z.object({ action: z.literal('repeatPreviousWeek'), weekStart }).strict(),
   z.object({ action: z.literal('refresh'), weekStart }).strict(),
   z.object({ action: z.literal('swapDays'), weekStart, dates: z.tuple([date, date]) }).strict(),
   z.object({ action: z.literal('moveMeal'), weekStart, slot, dates: z.tuple([date, date]) }).strict(),
@@ -37,8 +37,8 @@ const WeekActionSchema = z.discriminatedUnion('action', [
 
 function applyWeekAction(action: z.infer<typeof WeekActionSchema>) {
   switch (action.action) {
-    case 'confirmDay':
-      return confirmDay(action.weekStart, action.date)
+    case 'repeatPreviousWeek':
+      return repeatPreviousWeekChoices(action.weekStart)
     case 'refresh':
       return refreshWeek(action.weekStart)
     case 'swapDays':

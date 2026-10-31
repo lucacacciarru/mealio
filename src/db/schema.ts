@@ -11,6 +11,14 @@ export const sessions = sqliteTable(
   (table) => [index('sessions_expires_at_idx').on(table.expiresAt)],
 )
 
+// Single-user settings managed by the app itself: the password hash and the
+// secret used to key login rate limits.
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
 export const loginRateLimits = sqliteTable('login_rate_limits', {
   addressHash: text('address_hash').primaryKey(),
   windowStartedAt: integer('window_started_at').notNull(),
