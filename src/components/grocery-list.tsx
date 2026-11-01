@@ -486,7 +486,16 @@ function ManualItems({ items, busy, runAction }: { items: GroceryRoundView['manu
 // Purchases already made for meals that changed afterwards: shown so they
 // are not silently forgotten.
 function NoLongerNeeded({ view }: { view: GroceryView }) {
-  const items = view.rounds.flatMap((round) => round.noLongerNeeded)
+  // One tap records a check per round: merge them per line, as the list does.
+  const merged = new Map<string, GroceryRoundView['noLongerNeeded'][number]>()
+  for (const item of view.rounds.flatMap((round) => round.noLongerNeeded)) {
+    const key = JSON.stringify([item.foodKey, item.unit, item.cooked])
+    const previous = merged.get(key)
+    merged.set(key, previous
+      ? { ...previous, quantity: previous.quantity === null || item.quantity === null ? null : previous.quantity + item.quantity }
+      : item)
+  }
+  const items = [...merged.values()].sort((left, right) => left.name.localeCompare(right.name, 'it'))
   if (items.length === 0) return null
   return (
     <details className="grocery-home">
