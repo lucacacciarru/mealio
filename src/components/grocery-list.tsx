@@ -193,6 +193,7 @@ export function GroceryList({ weekStart, onWeekChange }: { weekStart: string | n
         <>
           <OpenDays view={view} />
           <GroceryItems view={view} aisles={aisles} busy={busy} runAction={runAction} runActions={runActions} />
+          <NoLongerNeeded view={view} />
           <ManualItems items={view.rounds.flatMap((round) => round.manual)} busy={busy} runAction={runAction} />
           <AlwaysAtHome view={view} busy={busy} runAction={runAction} />
         </>
@@ -229,7 +230,7 @@ function GroceryItems({ view, aisles, busy, runAction, runActions }: {
 }) {
   const foods = new Map(view.foods.map((food) => [food.key, food]))
   const items = aisles.flatMap((aisle) => aisle.lines)
-  const done = items.filter(({ contributions }) => isChecked(contributions)).length
+  const done = items.filter(({ contributions }) => isTaken(contributions)).length
   if (items.length === 0) {
     return <p className="grocery-empty">Niente da comprare per i pasti scelti.</p>
   }
@@ -242,7 +243,7 @@ function GroceryItems({ view, aisles, busy, runAction, runActions }: {
           <ul className="grocery-items">
             {/* Taken items sink to the bottom of their aisle. */}
             {[...aisle.lines]
-              .sort((left, right) => Number(isChecked(left.contributions)) - Number(isChecked(right.contributions)))
+              .sort((left, right) => Number(isTaken(left.contributions)) - Number(isTaken(right.contributions)))
               .map(({ line, contributions }) => (
                 <GroceryItem
                   key={JSON.stringify([line.foodKey, line.unit, line.cooked])}
@@ -269,6 +270,12 @@ function checkableOf(contributions: RoundLine[]): RoundLine[] {
 function isChecked(contributions: RoundLine[]): boolean {
   const lines = checkableOf(contributions)
   return lines.length > 0 && lines.every(({ line }) => line.check !== null)
+}
+
+// Taken means nothing left to buy: a purchase the meals have since outgrown
+// ("+X") is checked but not taken.
+function isTaken(contributions: RoundLine[]): boolean {
+  return isChecked(contributions) && !contributions.some(({ line }) => line.check !== null && line.delta !== null && line.delta > 0)
 }
 
 function GroceryItem({
@@ -473,6 +480,26 @@ function ManualItems({ items, busy, runAction }: { items: GroceryRoundView['manu
         <button className="secondary-button" type="submit" disabled={busy}>Aggiungi</button>
       </form>
     </section>
+  )
+}
+
+// Purchases already made for meals that changed afterwards: shown so they
+// are not silently forgotten.
+function NoLongerNeeded({ view }: { view: GroceryView }) {
+  const items = view.rounds.flatMap((round) => round.noLongerNeeded)
+  if (items.length === 0) return null
+  return (
+    <details className="grocery-home">
+      <summary>Comprati ma non più nei pasti ({items.length})</summary>
+      <ul>
+        {items.map((item) => (
+          <li key={JSON.stringify([item.foodKey, item.unit, item.cooked])}>
+            <span>{item.name}</span>
+            {item.quantity !== null && <span>{amount(item.quantity, item.unit)}</span>}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

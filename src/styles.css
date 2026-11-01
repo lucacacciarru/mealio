@@ -357,11 +357,6 @@ h1 {
   border-top: 1px solid var(--line);
 }
 
-.planner-day-tab[data-planned="true"] small {
-  color: var(--green-dark);
-  font-weight: 700;
-}
-
 .week-day {
   display: grid;
   min-width: 0;

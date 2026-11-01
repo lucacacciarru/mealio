@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { changePassword, hasValidSession, requestAddress } from '../../../server/auth'
+import { changePassword, hasValidSession, requestAddress, sessionToken } from '../../../server/auth'
 import { requestHasSameOrigin } from '../../../server/http'
 
 const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
@@ -25,7 +25,7 @@ export const Route = createFileRoute('/api/auth/password')({
         if (typeof current !== 'string' || typeof next !== 'string' || current.length > 1024 || next.length > 1024) {
           return Response.json({ error: 'Password non valida.' }, { status: 400, headers })
         }
-        const failure = await changePassword(current, next, requestAddress(request))
+        const failure = await changePassword(current, next, requestAddress(request), sessionToken(request) ?? '')
         if (failure) {
           return Response.json({ error: failure.message }, {
             status: failure.status,

@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto'
-import { eq, lt } from 'drizzle-orm'
+import { eq, lt, ne } from 'drizzle-orm'
 import { db } from '../db'
 import { appSettings, loginRateLimits, sessions } from '../db/schema'
 import { hashPassword, verifyPassword } from './password'
@@ -92,8 +92,9 @@ export async function setupPassword(password: string, address: string): Promise<
   return { status: 200, token: newSession(now) }
 }
 
-// Requires the current password; other devices stay signed in. Null on success.
-export async function changePassword(current: string, next: string, address: string): Promise<AuthFailure | null> {
+// Requires the current password and signs out every other device, so a
+// lost phone or a leaked password can be evicted. Null on success.
+export async function changePassword(current: string, next: string, address: string, keepToken: string): Promise<AuthFailure | null> {
   const now = Date.now()
   const limited = limitAttempt(address, now)
   if (limited) return limited
@@ -103,7 +104,11 @@ export async function changePassword(current: string, next: string, address: str
   }
   const invalid = validNewPassword(next)
   if (invalid) return invalid
-  saveSetting('password_hash', await hashPassword(next))
+  const encodedNext = await hashPassword(next)
+  db.transaction(() => {
+    saveSetting('password_hash', encodedNext)
+    db.delete(sessions).where(ne(sessions.tokenHash, tokenHash(keepToken))).run()
+  })
   return null
 }
 

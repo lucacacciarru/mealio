@@ -25,7 +25,7 @@ export function ChangePassword() {
         body: JSON.stringify({ current: String(data.get('current') ?? ''), next }),
       })
       form.reset()
-      setMessage({ error: false, text: 'Password cambiata.' })
+      setMessage({ error: false, text: 'Password cambiata. Gli altri dispositivi dovranno accedere di nuovo.' })
     } catch (cause) {
       setMessage({ error: true, text: cause instanceof Error ? cause.message : 'Cambio non riuscito.' })
     } finally {

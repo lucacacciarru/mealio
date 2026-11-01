@@ -51,7 +51,7 @@ The screen shows, from top to bottom: the meals still to decide (the first four,
 
 **Ripeti le scelte della settimana scorsa** fills, from today on, each meal that still has an open choice with the choices of the same plan meal (version, plan day and slot) last week, only when they resolve it. Swaps and the free meal are not repeated, so meals are never copied or dropped.
 
-The first valid edit atomically stores the weekly snapshot in `weeks` and `week_meals`; an invalid action leaves no partial snapshot. The `week_days` table from the former per-day publication is kept but no longer read. If a newer diet starts after a week was saved, the affected days keep their snapshot and **Usa la nuova dieta** replans those dates from today on, dropping their swaps and substitutions; the free meal stays.
+The first valid edit, check-in or grocery purchase atomically stores the weekly snapshot in `weeks` and `week_meals` (until then an untouched week follows the active diet); an invalid action leaves no partial snapshot. The `week_days` table from the former per-day publication is kept but no longer read. If a newer diet starts after a week was saved, the affected days keep their snapshot and **Usa la nuova dieta** replans those dates from today on, dropping their swaps and substitutions; the free meal stays.
 
 ## Groceries
 
@@ -114,7 +114,7 @@ Set these values as Railway variables on the `mealio` service in `production`; d
 
 The bucket is created in `ams`, but Railway assigns an effective S3 name distinct from the resource name; the S3 region may also differ from the creation region. Use the values returned by the credentials command. Sensitive variables remain `preserve()` values in the infrastructure-as-code file.
 
-Sessions last a year and are renewed (at most once a day) while in use, so each device signs in once. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` in production. Login, first-run setup and password changes are limited to five attempts per IP address every 15 minutes; the address is stored only as an HMAC keyed by `SESSION_SECRET` or by a random secret kept in `app_settings`. Changing the password keeps existing sessions; **Esci** ends the current one. The password field is hidden by default and has a Show/Hide control.
+Sessions last a year and are renewed (at most once a day) while in use, so each device signs in once. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` in production. Login, first-run setup and password changes are limited to five attempts per IP address every 15 minutes; the address is stored only as an HMAC keyed by `SESSION_SECRET` or by a random secret kept in `app_settings`. Changing the password keeps the current session and signs out every other device; **Esci** ends the current one. The password field is hidden by default and has a Show/Hide control.
 
 ## Backups and exports
 
@@ -123,7 +123,7 @@ The maintenance process starts with the service and uploads:
 - daily SQLite snapshots at 03:00 UTC, including source PDFs referenced by imported plans;
 - weekly JSON exports on Sundays at 03:15 UTC, including the same source PDFs.
 
-Objects are compressed and encrypted with AES-256-GCM before upload. The JSON export includes application tables and excludes sessions, login rate limits, and scheduler state. A backup or export fails if a referenced source PDF is missing instead of silently omitting it. The bucket is in EU West. Do not put PDFs or personal data in the repository.
+Objects are compressed and encrypted with AES-256-GCM before upload. The JSON export includes application tables and excludes sessions, login rate limits, `app_settings` (password hash and rate-limit secret), and scheduler state; the SQLite snapshot keeps them, so a restore brings the password back. A backup or export fails if a referenced source PDF is missing instead of silently omitting it. The bucket is in EU West. Do not put PDFs or personal data in the repository.
 
 Run a backup or export manually when Railway variables are available locally:
 

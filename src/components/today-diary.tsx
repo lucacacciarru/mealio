@@ -75,9 +75,8 @@ export function TodayDiary({ date, onDateChange }: {
     }
   }
 
-  function goTo(next: string | null) {
-    if (confirmDiscardNotes(rootRef.current)) onDateChange(next)
-  }
+  // useBlocker already confirms before a navigation discards unsaved notes.
+  const goTo = onDateChange
 
   return (
     <section className="today" ref={rootRef} aria-labelledby="today-title" aria-busy={busy}>
@@ -196,7 +195,12 @@ function TodayMeal({ meal, editable, disabled, record }: {
       </div>
       {plan.free ? (
         <p className="today-free"><strong>Pasto libero</strong>{plan.free.description ? ` · ${plan.free.description}` : ''}</p>
-      ) : <MealFoods meal={plan} />}
+      ) : (
+        <>
+          <MealFoods meal={plan} />
+          {plan.notes && <p className="meal-card-note">{plan.notes}</p>}
+        </>
+      )}
       {checkIn && !checkIn.followed && <p className="today-skipped">Non seguito</p>}
       {(editable || checkIn?.note) && (
         <details className="today-more">
@@ -234,7 +238,7 @@ function NoteForm({ meal, disabled, record }: {
       <textarea id={noteId} value={note} maxLength={CHECK_IN_NOTE_MAX_LENGTH} rows={2} disabled={disabled}
         onChange={(event) => setNote(event.currentTarget.value)} />
       <div className="today-actions">
-        <button type="submit" className="text-button" disabled={disabled || !dirty}>Salva nota</button>
+        <button type="submit" className="text-button" disabled={disabled || !dirty}>{checkIn ? 'Salva nota' : 'Salva nota e segna seguito'}</button>
         {!plan.free && (
           <button type="button" className="text-button" aria-pressed={checkIn?.followed === false}
             disabled={disabled || checkIn?.followed === false} onClick={() => void record(false, noteValue)}>Segna non seguito</button>

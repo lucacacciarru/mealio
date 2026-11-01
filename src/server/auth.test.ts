@@ -40,13 +40,19 @@ test('the password is chosen in the app, can be changed, and sessions renew whil
     t.mock.timers.setTime(new Date('2026-10-25T10:00:00Z').getTime())
     assert.ok(auth.sessionExpiresAt(request(token))! > firstExpiry)
 
-    // Changing requires the current password; existing sessions stay valid.
-    assert.equal((await auth.changePassword('sbagliata', 'nuova-password', 'd'))?.status, 401)
-    assert.equal((await auth.changePassword('password-sintetica', 'corta', 'd'))?.status, 400)
-    assert.equal(await auth.changePassword('password-sintetica', 'nuova-password', 'd'), null)
+    // Changing requires the current password, keeps the caller signed in and
+    // signs out every other device.
+    const other = await auth.loginWithPassword('password-sintetica', 'c')
+    assert.equal(other.status, 200)
+    const otherToken = (other as { token: string }).token
+    assert.equal((await auth.changePassword('sbagliata', 'nuova-password', 'd', token))?.status, 401)
+    assert.equal((await auth.changePassword('password-sintetica', 'corta', 'd', token))?.status, 400)
+    assert.notEqual(auth.sessionExpiresAt(request(otherToken)), null)
+    assert.equal(await auth.changePassword('password-sintetica', 'nuova-password', 'd', token), null)
+    assert.notEqual(auth.sessionExpiresAt(request(token)), null)
+    assert.equal(auth.sessionExpiresAt(request(otherToken)), null)
     assert.equal((await auth.loginWithPassword('password-sintetica', 'e')).status, 401)
     assert.equal((await auth.loginWithPassword('nuova-password', 'e')).status, 200)
-    assert.notEqual(auth.sessionExpiresAt(request(token)), null)
 
     // Attempts are rate limited per address.
     for (let attempt = 0; attempt < 5; attempt += 1) await auth.loginWithPassword('sbagliata', 'f')

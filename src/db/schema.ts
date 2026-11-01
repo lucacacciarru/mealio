@@ -260,8 +260,9 @@ export const planEquivalenceItems = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Weekly snapshots and saved draft choices are independent of publication.
-// Only an explicit per-day confirmation in week_days publishes its meals.
+// A week is saved on its first edit, check-in or purchase. A day is ready,
+// and counts for groceries and the diary, once it has no open choices;
+// week_days (the former per-day publication) is kept but no longer read.
 // Each week meal keeps its source plan snapshot; swaps move snapshots,
 // choices, and the free meal between dates of the same plan version.
 // ---------------------------------------------------------------------------

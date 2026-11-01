@@ -7,7 +7,7 @@ import { CHECK_IN_NOTE_MAX_LENGTH } from '../diary'
 import type { DiaryDay, DiaryMutation } from '../diary'
 import { HttpError } from './http'
 import { todayInRome } from './plans'
-import { getWeek } from './weeks'
+import { ensureWeekSnapshot, getWeek } from './weeks'
 import type { WeekMealView } from './weeks'
 
 const dateSchema = z.iso.date()
@@ -121,6 +121,7 @@ export function saveDiaryCheckIns(input: DiaryMutation): DiaryDay {
     }
     const plan = readSnapshot(mutation.snapshotId)
     if (plan.date !== mutation.date) throw new HttpError('La pianificazione non appartiene a questo giorno.', 400)
+    ensureWeekSnapshot(mutation.date)
     const now = Date.now()
     const existing = db.select().from(mealCheckIns).where(eq(mealCheckIns.date, mutation.date)).all()
     const current = originalSnapshot(mutation.date)

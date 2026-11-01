@@ -16,7 +16,7 @@ test('days are ready once their choices are made, and last week\'s choices can b
   // the singleton opens DATABASE_PATH at module initialization.
   const { db, sqlite } = await import('../db')
   const { activatePlanVersion, createPlanVersion, ensureMeal } = await import('./plans')
-  const { clearWeekFreeMeal, getWeek, refreshWeek, repeatPreviousWeekChoices, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
+  const { clearWeekFreeMeal, ensureWeekSnapshot, getWeek, refreshWeek, repeatPreviousWeekChoices, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
   const { getGroceries } = await import('./groceries')
   try {
     migrate(db, { migrationsFolder: './drizzle' })
@@ -134,13 +134,18 @@ test('days are ready once their choices are made, and last week\'s choices can b
     // Repeating last week copies the choices of the same plan meals, only where
     // they are still open, and never swaps.
     const next = '2026-10-26'
+    // A choice already made this week is never replaced: next Sunday's lunch
+    // picked another combination, so last week's choices do not apply to it.
+    setWeekMealChoices(next, '2026-11-01', 'lunch', { combination: 'Pasta e ceci', meal: null, rows: {} })
     const repeated = repeatPreviousWeekChoices(next)
+    assert.equal(repeated.days[6]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Pasta e ceci')
     // Last week's Monday/Tuesday lunches were swapped: each plan meal keeps its own choice.
     assert.equal(repeated.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Riso e lenticchie')
     assert.equal(repeated.days[1]!.meals.find((meal) => meal.slot === 'lunch')!.combinationChoice, 'Pasta e ceci')
     assert.equal(repeated.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.sourceDayIndex, 0)
     assert.deepEqual(repeated.days.map((day) => day.ready), [true, true, true, false, false, false, false])
-    assert.equal(repeated.days[6]!.unresolvedChoices, 1)
+    // Sunday: the open breakfast, plus the lunch left open on its own variant.
+    assert.equal(repeated.days[6]!.unresolvedChoices, 2)
     assert.throws(() => repeatPreviousWeekChoices(next), (cause) => cause instanceof HttpError && cause.status === 409)
     assert.throws(() => repeatPreviousWeekChoices('2026-11-09'), (cause) => cause instanceof HttpError && cause.status === 409)
 
@@ -178,6 +183,26 @@ test('days are ready once their choices are made, and last week\'s choices can b
     assert.equal(partial.days[0]!.meals.find((meal) => meal.slot === 'lunch')!.rows[0]!.components[0]!.quantity, null)
     assert.throws(() => swapWeekMeals('2026-11-02', ['2026-11-02', '2026-11-05'], ['lunch']),
       (cause) => cause instanceof HttpError && cause.status === 409)
+
+    // An untouched week follows the active diet until its first real use
+    // (a check-in or a purchase) freezes it: a later diet then no longer
+    // replaces its meals silently, it is offered instead.
+    const used = '2026-11-16'
+    assert.equal(getWeek(used).status, 'unconfirmed')
+    ensureWeekSnapshot('2026-11-17')
+    assert.equal(getWeek(used).status, 'confirmed')
+    const laterVersion = createPlanVersion('Dieta sintetica successiva')
+    db.insert(planComponents).values({
+      mealId: ensureMeal(laterVersion, 2, 'lunch'), position: 0, label: 'Pranzo successivo', quantity: null, state: 'raw',
+    }).run()
+    activatePlanVersion(laterVersion, '2026-11-18')
+    const frozen = getWeek(used)
+    assert.equal(frozen.days[2]!.plannedVersion!.id, incompleteVersion)
+    assert.equal(frozen.days[2]!.validVersion!.id, laterVersion)
+    // Past weeks are never frozen after the fact.
+    const before = db.select().from(weeks).all().length
+    ensureWeekSnapshot('2026-10-05')
+    assert.equal(db.select().from(weeks).all().length, before)
 
     // Days before the first diet have no meals and are never ready.
     t.mock.timers.setTime(new Date('2026-09-27T10:00:00Z').getTime())

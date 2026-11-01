@@ -55,7 +55,7 @@ A new week starts from the diet valid on each date. Required meal variants and e
 - choose the weekly free meal from the meal itself;
 - explicitly repeat last week's choices: each meal still open from today on takes the choices of the same plan meal (version, plan day and slot) last week, only when they resolve it. Swaps and the free meal are not repeated, so no meal is copied or dropped.
 
-The first valid edit atomically saves a snapshot of the week's meals and choices. An invalid action creates no saved week, and opening groceries never saves one. Reopening a choice makes that day not ready again until it is decided. Groceries recalculate from ready days; past choices, saved snapshots and recorded diary meals are not silently reinterpreted. Day publication records written by earlier versions (`week_days`) are kept but no longer read.
+The first valid edit, check-in or grocery purchase atomically saves a snapshot of the week's meals and choices; until then an untouched week follows the active diet. An invalid action creates no saved week, and opening groceries never saves one. Reopening a choice makes that day not ready again until it is decided. Groceries recalculate from ready days; past choices, saved snapshots and recorded diary meals are not silently reinterpreted. Day publication records written by earlier versions (`week_days`) are kept but no longer read.
 
 ### 4. Groceries
 

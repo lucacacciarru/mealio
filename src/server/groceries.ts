@@ -15,7 +15,7 @@ import {
 import { addFood, getOrCreateAisle, normalizeAlias } from './catalog'
 import { HttpError } from './http'
 import type { PlanComponentView } from './plans'
-import { addDays, assertWeekStart, getWeek, type MealOption, type WeekMealView, type WeekView } from './weeks'
+import { addDays, assertWeekStart, ensureWeekSnapshot, getWeek, type MealOption, type WeekMealView, type WeekView } from './weeks'
 
 // The grocery list is derived from the week whenever it is read: it sums the
 // foods each planned meal actually uses (the chosen combination and
@@ -533,6 +533,7 @@ function deleteLineChecks(line: LineRef): void {
 export function setGroceryCheck(input: LineRef & { name: string; quantity: number | null }): GroceryView {
   assertWeekStart(input.weekStart)
   db.transaction(() => {
+    ensureWeekSnapshot(input.weekStart)
     deleteLineChecks(input)
     db.insert(groceryChecks)
       .values({

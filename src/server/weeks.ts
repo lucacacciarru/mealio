@@ -183,6 +183,18 @@ function savedWeek(weekStart: string) {
   return week
 }
 
+// Freezes an untouched week on its first real use (a check-in or a grocery
+// purchase): from then on a later diet activation no longer replaces its
+// meals silently, and the newer diet is offered as "Usa la nuova dieta".
+// Past weeks and weeks without any valid plan stay as they are.
+export function ensureWeekSnapshot(date: string): void {
+  const weekStart = addDays(date, -weekdayIndex(date))
+  if (db.select({ id: weeks.id }).from(weeks).where(eq(weeks.weekStart, weekStart)).get()) return
+  if (addDays(weekStart, 6) < todayInRome()) return
+  if (!weekDates(weekStart).some((day) => planVersionForDate(day))) return
+  savedWeek(weekStart)
+}
+
 // The meals the version sets for the weekday of `date`, as unmodified rows.
 function plannedMealRows(date: string, versionId: number, plans: Map<number, PlanView>): WeekMealRow[] {
   const plan = plans.get(versionId) ?? getPlan(versionId)
@@ -602,7 +614,8 @@ export function repeatPreviousWeekChoices(weekStart: string): WeekView {
       if (week.freeMealDate === row.date && week.freeMealSlot === row.slot) continue
       const snapshot = JSON.parse(row.snapshotJson) as WeekMealSnapshot
       const options = substitutionOptions(snapshot)
-      if (unresolvedMealChoices(options, WeekMealChoicesSchema.parse(JSON.parse(row.choicesJson))) === 0) continue
+      const current = WeekMealChoicesSchema.parse(JSON.parse(row.choicesJson))
+      if (unresolvedMealChoices(options, current) === 0) continue
       const source = sources.find(
         (candidate) =>
           candidate.slot === row.slot &&
@@ -613,6 +626,13 @@ export function repeatPreviousWeekChoices(weekStart: string): WeekView {
       if (!source) continue
       const choices = WeekMealChoicesSchema.parse(JSON.parse(source.choicesJson))
       if (unresolvedMealChoices(options, choices) > 0) continue
+      // Never replace a choice already made this week: a meal whose choices
+      // disagree with last week's stays open.
+      const compatible =
+        (current.combination === null || current.combination === choices.combination) &&
+        (current.meal === null || current.meal === choices.meal) &&
+        Object.entries(current.rows).every(([key, value]) => choices.rows[key] === value)
+      if (!compatible) continue
       assertChoicesAllowed(snapshot, choices)
       db.update(weekMeals).set({ choicesJson: JSON.stringify(choices) }).where(eq(weekMeals.id, row.id)).run()
       repeated += 1
