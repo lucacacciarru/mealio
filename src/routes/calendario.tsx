@@ -1,18 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
-import { TodayDiary } from '../components/today-diary'
 
+// The former diary now lives on the home screen.
 export const Route = createFileRoute('/calendario')({
-  validateSearch: (search: Record<string, unknown>): { date?: string } => {
-    const date = z.iso.date().safeParse(search.date)
-    return { date: date.success ? date.data : undefined }
+  beforeLoad: ({ search }) => {
+    const date = z.iso.date().safeParse((search as Record<string, unknown>).date)
+    throw redirect({ to: '/', search: { date: date.success ? date.data : undefined }, replace: true })
   },
-  head: () => ({ meta: [{ title: 'Diario dei pasti · Mealio' }] }),
-  component: CalendarPage,
 })
-
-function CalendarPage() {
-  const { date } = Route.useSearch()
-  const navigate = Route.useNavigate()
-  return <TodayDiary date={date ?? null} onDateChange={(selected) => void navigate({ search: { date: selected ?? undefined } })} />
-}

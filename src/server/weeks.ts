@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db'
-import { PLAN_SLOTS, planVersions, weekDays, weekMeals, weeks, type PlanSlot } from '../db/schema'
+import { PLAN_SLOTS, planVersions, weekMeals, weeks, type PlanSlot } from '../db/schema'
 import { HttpError } from './http'
 import {
   DAY_NAMES,
@@ -14,8 +14,9 @@ import {
 } from './plans'
 
 // Reading a week previews the valid diet without selecting its alternatives.
-// Edits save draft snapshots; only explicit day confirmation publishes meals.
-// Later edits preserve past dates and swap only within the same plan version.
+// A day is ready, and counts for groceries and the diary, once every required
+// choice of its meals is made. Edits preserve past dates and swap only within
+// the same plan version.
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -101,7 +102,8 @@ export type WeekDayView = {
   dayIndex: number
   dayName: string
   past: boolean
-  plannedAt: number | null
+  // Has meals and no open choices: it counts for groceries and the diary.
+  ready: boolean
   unresolvedChoices: number
   // Version whose meals the day shows and version valid on the date now: they
   // differ when a newer version started after the week was confirmed.
@@ -179,6 +181,18 @@ function savedWeek(weekStart: string) {
   const week = db.insert(weeks).values({ weekStart, confirmedAt: Date.now() }).returning().get()
   db.insert(weekMeals).values(rows.map((row) => ({ ...row, weekId: week.id }))).run()
   return week
+}
+
+// Freezes an untouched week on its first real use (a check-in or a grocery
+// purchase): from then on a later diet activation no longer replaces its
+// meals silently, and the newer diet is offered as "Usa la nuova dieta".
+// Past weeks and weeks without any valid plan stay as they are.
+export function ensureWeekSnapshot(date: string): void {
+  const weekStart = addDays(date, -weekdayIndex(date))
+  if (db.select({ id: weeks.id }).from(weeks).where(eq(weeks.weekStart, weekStart)).get()) return
+  if (addDays(weekStart, 6) < todayInRome()) return
+  if (!weekDates(weekStart).some((day) => planVersionForDate(day))) return
+  savedWeek(weekStart)
 }
 
 // The meals the version sets for the weekday of `date`, as unmodified rows.
@@ -291,12 +305,6 @@ function unresolvedMealChoices(
   return unresolved
 }
 
-function invalidateDays(weekId: number, dates: string[]): void {
-  db.delete(weekDays)
-    .where(and(eq(weekDays.weekId, weekId), inArray(weekDays.date, dates)))
-    .run()
-}
-
 function assertChoicesAllowed(snapshot: WeekMealSnapshot, choices: WeekMealChoices): void {
   const options = substitutionOptions(snapshot)
   const rowChoices = Object.entries(choices.rows)
@@ -327,10 +335,6 @@ export function getWeek(weekStart?: string): WeekView {
   assertWeekStart(start)
   const dates = weekDates(start)
   const week = db.select().from(weeks).where(eq(weeks.weekStart, start)).get()
-  const plannedDates = new Map(
-    (week ? db.select().from(weekDays).where(eq(weekDays.weekId, week.id)).all() : [])
-      .map((day) => [day.date, day.plannedAt]),
-  )
   const validVersionIds = dates.map((date) => planVersionForDate(date)?.id ?? null)
   const plans = new Map<number, PlanView>()
   const rows: WeekMealRow[] = week
@@ -410,7 +414,7 @@ export function getWeek(weekStart?: string): WeekView {
         dayIndex,
         dayName: DAY_NAMES[dayIndex],
         past: date < today,
-        plannedAt: plannedDates.get(date) ?? null,
+        ready: meals.length > 0 && unresolvedChoices === 0,
         unresolvedChoices,
         plannedVersion: dayRows[0] ? versions.get(dayRows[0].sourceVersionId) ?? null : null,
         validVersion: validVersionId === null ? null : versions.get(validVersionId) ?? null,
@@ -423,39 +427,6 @@ export function getWeek(weekStart?: string): WeekView {
 // ---------------------------------------------------------------------------
 // Changes
 // ---------------------------------------------------------------------------
-
-export function confirmDay(weekStart: string, date: string): WeekView {
-  assertWeekStart(weekStart)
-  assertChangeableDate(weekStart, date, todayInRome())
-  db.transaction(() => {
-    const week = savedWeek(weekStart)
-    const rows = db.select().from(weekMeals)
-      .where(and(eq(weekMeals.weekId, week.id), eq(weekMeals.date, date)))
-      .all()
-    if (rows.length === 0) throw new HttpError('Nessun piano è valido per questo giorno da confermare.', 409)
-    for (const row of rows) {
-      if (week.freeMealDate === date && week.freeMealSlot === row.slot) continue
-      const snapshot = JSON.parse(row.snapshotJson) as WeekMealSnapshot
-      const choices = WeekMealChoicesSchema.parse(JSON.parse(row.choicesJson))
-      const options = substitutionOptions(snapshot)
-      assertChoicesAllowed(snapshot, choices)
-      const unresolved = unresolvedMealChoices(options, choices)
-      if (unresolved > 0) {
-        const labels: Record<PlanSlot, string> = {
-          breakfast: 'colazione',
-          morning_snack: 'spuntino del mattino',
-          lunch: 'pranzo',
-          afternoon_snack: 'spuntino del pomeriggio',
-          dinner: 'cena',
-        }
-        throw new HttpError(`Completa le scelte di ${labels[row.slot]} prima di aggiungere la giornata al calendario.`, 409)
-      }
-    }
-    db.insert(weekDays).values({ weekId: week.id, date, plannedAt: Date.now() })
-      .onConflictDoNothing().run()
-  })
-  return getWeek(weekStart)
-}
 
 // Exchanges whole planned meals (snapshot, choices, and the free meal) between
 // the same slots of two dates. A day swap passes every slot; moving a meal
@@ -512,7 +483,6 @@ export function swapWeekMeals(
         .where(eq(weeks.id, week.id))
         .run()
     }
-    invalidateDays(week.id, [first, second])
   })
   return getWeek(weekStart)
 }
@@ -542,7 +512,6 @@ export function setWeekMealChoices(
       .set({ choicesJson: JSON.stringify(choices) })
       .where(eq(weekMeals.id, row.id))
       .run()
-    invalidateDays(week.id, [date])
   })
   return getWeek(weekStart)
 }
@@ -577,7 +546,6 @@ export function setWeekFreeMeal(
       .set({ freeMealDate: date, freeMealSlot: slot, freeMealDescription: text })
       .where(eq(weeks.id, week.id))
       .run()
-    invalidateDays(week.id, week.freeMealDate === null ? [date] : [week.freeMealDate, date])
   })
   return getWeek(weekStart)
 }
@@ -593,7 +561,6 @@ export function clearWeekFreeMeal(weekStart: string): WeekView {
       .set({ freeMealDate: null, freeMealSlot: null, freeMealDescription: null })
       .where(eq(weeks.id, week.id))
       .run()
-    invalidateDays(week.id, [week.freeMealDate])
   })
   return getWeek(weekStart)
 }
@@ -620,10 +587,57 @@ export function refreshWeek(weekStart: string): WeekView {
       db.insert(weekMeals)
         .values(plannedMealRows(date, validVersionId, plans).map((row) => ({ ...row, weekId: week.id })))
         .run()
-      invalidateDays(week.id, [date])
       replanned += 1
     }
     if (replanned === 0) throw new HttpError('I giorni da oggi in poi seguono già il piano valido.', 409)
+  })
+  return getWeek(weekStart)
+}
+
+// Repeats last week's choices on the meals of this week, from today on, that
+// still have open choices. A meal takes the choices of the same plan meal
+// (version, plan day, and slot) last week, wherever it was moved, and only
+// when they resolve it; swaps and the free meal are not repeated, so no meal
+// is copied or dropped.
+export function repeatPreviousWeekChoices(weekStart: string): WeekView {
+  assertWeekStart(weekStart)
+  const today = todayInRome()
+  const previous = db.select().from(weeks).where(eq(weeks.weekStart, addDays(weekStart, -7))).get()
+  if (!previous) throw new HttpError('La settimana scorsa non ha scelte salvate da ripetere.', 409)
+  db.transaction(() => {
+    const week = savedWeek(weekStart)
+    const sources = db.select().from(weekMeals).where(eq(weekMeals.weekId, previous.id)).all()
+    const rows = db.select().from(weekMeals).where(eq(weekMeals.weekId, week.id)).all()
+    let repeated = 0
+    for (const row of rows) {
+      if (row.date < today) continue
+      if (week.freeMealDate === row.date && week.freeMealSlot === row.slot) continue
+      const snapshot = JSON.parse(row.snapshotJson) as WeekMealSnapshot
+      const options = substitutionOptions(snapshot)
+      const current = WeekMealChoicesSchema.parse(JSON.parse(row.choicesJson))
+      if (unresolvedMealChoices(options, current) === 0) continue
+      const source = sources.find(
+        (candidate) =>
+          candidate.slot === row.slot &&
+          candidate.sourceVersionId === row.sourceVersionId &&
+          candidate.sourceDayIndex === row.sourceDayIndex &&
+          candidate.snapshotJson === row.snapshotJson,
+      )
+      if (!source) continue
+      const choices = WeekMealChoicesSchema.parse(JSON.parse(source.choicesJson))
+      if (unresolvedMealChoices(options, choices) > 0) continue
+      // Never replace a choice already made this week: a meal whose choices
+      // disagree with last week's stays open.
+      const compatible =
+        (current.combination === null || current.combination === choices.combination) &&
+        (current.meal === null || current.meal === choices.meal) &&
+        Object.entries(current.rows).every(([key, value]) => choices.rows[key] === value)
+      if (!compatible) continue
+      assertChoicesAllowed(snapshot, choices)
+      db.update(weekMeals).set({ choicesJson: JSON.stringify(choices) }).where(eq(weekMeals.id, row.id)).run()
+      repeated += 1
+    }
+    if (repeated === 0) throw new HttpError('Nessuna scelta della settimana scorsa si applica ai pasti ancora da scegliere.', 409)
   })
   return getWeek(weekStart)
 }

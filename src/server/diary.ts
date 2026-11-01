@@ -7,7 +7,7 @@ import { CHECK_IN_NOTE_MAX_LENGTH } from '../diary'
 import type { DiaryDay, DiaryMutation } from '../diary'
 import { HttpError } from './http'
 import { todayInRome } from './plans'
-import { getWeek } from './weeks'
+import { ensureWeekSnapshot, getWeek } from './weeks'
 import type { WeekMealView } from './weeks'
 
 const dateSchema = z.iso.date()
@@ -52,7 +52,7 @@ function originalSnapshot(date: string): DaySnapshot {
     weekStatus: week.status,
     plannedVersion: day.plannedVersion,
     validVersion: day.validVersion,
-    meals: day.plannedAt === null ? [] : day.meals,
+    meals: day.ready ? day.meals : [],
   }
 }
 
@@ -70,8 +70,8 @@ export function getDiaryDay(date = todayInRome()): DiaryDay {
     return saved
   }
   // Recorded slots always use their immutable snapshot. Unrecorded slots
-  // remain hidden while the day is a draft, including historical snapshots.
-  // A published past day retains the plan seen at its first check-in.
+  // remain hidden while the day has open choices, including historical snapshots.
+  // A ready past day retains the plan seen at its first check-in.
   const first = checkIns[0]
   const current = originalSnapshot(date)
   const base = date < today && first
@@ -121,6 +121,7 @@ export function saveDiaryCheckIns(input: DiaryMutation): DiaryDay {
     }
     const plan = readSnapshot(mutation.snapshotId)
     if (plan.date !== mutation.date) throw new HttpError('La pianificazione non appartiene a questo giorno.', 400)
+    ensureWeekSnapshot(mutation.date)
     const now = Date.now()
     const existing = db.select().from(mealCheckIns).where(eq(mealCheckIns.date, mutation.date)).all()
     const current = originalSnapshot(mutation.date)
@@ -128,7 +129,7 @@ export function saveDiaryCheckIns(input: DiaryMutation): DiaryDay {
       const row = existing.find((candidate) => candidate.slot === entry.slot)
       if ((row?.revision ?? 0) !== entry.baseRevision) throw new DiaryConflictError(mutation.date)
       if (!row && !current.meals.some((meal) => meal.slot === entry.slot)) {
-        throw new HttpError('Il giorno non è pianificato. Confermalo nella settimana prima di registrare nuovi pasti.', 409)
+        throw new HttpError('Il giorno ha ancora scelte da fare nella settimana: completale prima di registrare nuovi pasti.', 409)
       }
       const meal = (row ? readSnapshot(row.snapshotId) : plan).meals.find((candidate) => candidate.slot === entry.slot)
       if (!meal) throw new HttpError('Nessun pasto pianificato in questo giorno e orario.', 400)

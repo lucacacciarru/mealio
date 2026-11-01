@@ -11,6 +11,7 @@ const excludedTables = new Set([
   '__drizzle_migrations',
   'sessions',
   'login_rate_limits',
+  'app_settings',
   'maintenance_runs',
 ])
 

@@ -8,7 +8,6 @@ import {
   GROCERY_ROUNDS,
   groceryChecks,
   groceryManualItems,
-  groceryPantry,
   type GroceryRound,
   type PlanComponentState,
   type PlanSlot,
@@ -16,15 +15,16 @@ import {
 import { addFood, getOrCreateAisle, normalizeAlias } from './catalog'
 import { HttpError } from './http'
 import type { PlanComponentView } from './plans'
-import { addDays, assertWeekStart, getWeek, type MealOption, type WeekMealView, type WeekView } from './weeks'
+import { addDays, assertWeekStart, ensureWeekSnapshot, getWeek, type MealOption, type WeekMealView, type WeekView } from './weeks'
 
 // The grocery list is derived from the week whenever it is read: it sums the
 // foods each planned meal actually uses (the chosen combination and
 // substitutions, never the free meal) and splits them between the fixed
 // Monday and Thursday rounds. Units convert only through exact metric
 // equivalences or the rules the user set for a food; anything else stays as
-// printed and is flagged. Pantry stock, checkmarks, and manual items are the
-// user's separate records and are matched to the recalculated lines.
+// printed and is flagged. Checkmarks and manual items are the user's separate
+// records and are matched to the recalculated lines. Pantry stock recorded by
+// earlier versions stays stored but no longer changes the list.
 
 const THURSDAY = 3
 
@@ -227,8 +227,6 @@ export type GroceryLine = {
   needed: number | null
   unquantifiedUses: number
   unspecifiedStateUses: number
-  // Pantry stock covering this round; the Monday round uses it first.
-  pantry: number
   packageSize: number | null
   packages: number | null
   toBuy: number | null
@@ -278,13 +276,13 @@ export type GroceryView = {
   today: string
   weekStatus: WeekView['status']
   planned: boolean
-  unplannedDays: { date: string; dayName: string }[]
+  // Days with meals whose choices are still open: they are not counted.
+  unplannedDays: { date: string; dayName: string; unresolvedChoices: number }[]
   rounds: GroceryRoundView[]
   openChoices: (OpenChoice & { date: string; dayName: string; slot: PlanSlot })[]
   freeMeal: { date: string; dayName: string; slot: PlanSlot } | null
   // Keys of foods used this week that are always at home and never listed.
   alwaysAtHome: string[]
-  pantry: { foodKey: string; name: string; unit: string; quantity: number; used: boolean }[]
   foods: GroceryFood[]
   aisles: string[]
 }
@@ -309,7 +307,7 @@ export function getGroceries(weekStart?: string): GroceryView {
   const openChoices: GroceryView['openChoices'] = []
 
   week.days.forEach((day, dayOffset) => {
-    if (day.plannedAt === null) return
+    if (!day.ready) return
     for (const meal of day.meals) {
       if (meal.free) continue
       const { foods: planned, open } = plannedFoods(meal)
@@ -344,15 +342,6 @@ export function getGroceries(weekStart?: string): GroceryView {
       }
     }
   })
-
-  const pantry = new Map<string, GroceryView['pantry'][number]>()
-  for (const row of db.select().from(groceryPantry).where(eq(groceryPantry.weekStart, week.weekStart)).all()) {
-    const amount = inGroceryUnit(foodForKey(row.foodKey, catalog), row.unit, row.quantity)
-    const id = lineId(row.foodKey, amount.unit, false)
-    const entry = pantry.get(id) ?? { foodKey: row.foodKey, name: row.name, unit: amount.unit, quantity: 0, used: drafts.has(id) }
-    entry.quantity = tidy(entry.quantity + (amount.quantity ?? 0))
-    pantry.set(id, entry)
-  }
 
   const checks = new Map<string, RecordedCheck>()
   for (const row of db.select().from(groceryChecks).where(eq(groceryChecks.weekStart, week.weekStart)).all()) {
@@ -389,15 +378,12 @@ export function getGroceries(weekStart?: string): GroceryView {
   for (const [id, draft] of drafts) {
     const groceryUnit = draft.food?.groceryUnit ?? null
     const packageSize = !draft.cooked && groceryUnit === draft.unit ? draft.food?.packageSize ?? null : null
-    let pantryLeft = draft.cooked ? 0 : pantry.get(id)?.quantity ?? 0
     for (const round of GROCERY_ROUNDS) {
       const needs = draft.needs.filter((need) => need.round === round)
       if (needs.length === 0) continue
       const quantities = needs.flatMap((need) => (need.quantity === null ? [] : [need.quantity]))
       const needed = quantities.length === 0 ? null : tidy(quantities.reduce((total, value) => total + value, 0))
-      const fromPantry = needed === null ? 0 : Math.min(pantryLeft, needed)
-      pantryLeft = tidy(pantryLeft - fromPantry)
-      const net = needed === null ? null : tidy(needed - fromPantry)
+      const net = needed
       let packages: number | null = null
       let toBuy: number | null = null
       let surplus: number | null = null
@@ -423,7 +409,6 @@ export function getGroceries(weekStart?: string): GroceryView {
           needed,
           unquantifiedUses: needs.length - quantities.length,
           unspecifiedStateUses: needs.filter((need) => need.use.state === 'unspecified').length,
-          pantry: fromPantry,
           packageSize,
           packages,
           toBuy,
@@ -456,8 +441,8 @@ export function getGroceries(weekStart?: string): GroceryView {
     weekStatus: week.status,
     planned: week.days.some((day) => day.meals.length > 0),
     unplannedDays: week.days
-      .filter((day) => day.meals.length > 0 && day.plannedAt === null)
-      .map(({ date, dayName }) => ({ date, dayName })),
+      .filter((day) => day.meals.length > 0 && !day.ready)
+      .map(({ date, dayName, unresolvedChoices }) => ({ date, dayName, unresolvedChoices })),
     rounds: GROCERY_ROUNDS.map((round) => ({
       round,
       date: addDays(week.weekStart, round === 'monday' ? 0 : THURSDAY),
@@ -471,7 +456,7 @@ export function getGroceries(weekStart?: string): GroceryView {
         .map((row) => ({ id: row.id, label: row.label, quantityText: row.quantityText, checkedAt: row.checkedAt })),
     })),
     openChoices,
-    freeMeal: week.freeMeal && week.days.some((day) => day.date === week.freeMeal?.date && day.plannedAt !== null)
+    freeMeal: week.freeMeal && week.days.some((day) => day.date === week.freeMeal?.date && day.ready)
       ? {
           date: week.freeMeal.date,
           dayName: week.days.find((day) => day.date === week.freeMeal?.date)?.dayName ?? '',
@@ -479,7 +464,6 @@ export function getGroceries(weekStart?: string): GroceryView {
         }
       : null,
     alwaysAtHome: [...alwaysAtHome],
-    pantry: [...pantry.values()].sort((left, right) => left.name.localeCompare(right.name, 'it')),
     foods: [...foods.entries()].map(([key, { food, name, units }]) => {
       const rules = food && {
         unit: food.groceryUnit,
@@ -549,6 +533,7 @@ function deleteLineChecks(line: LineRef): void {
 export function setGroceryCheck(input: LineRef & { name: string; quantity: number | null }): GroceryView {
   assertWeekStart(input.weekStart)
   db.transaction(() => {
+    ensureWeekSnapshot(input.weekStart)
     deleteLineChecks(input)
     db.insert(groceryChecks)
       .values({
@@ -569,42 +554,6 @@ export function setGroceryCheck(input: LineRef & { name: string; quantity: numbe
 export function clearGroceryCheck(input: LineRef): GroceryView {
   assertWeekStart(input.weekStart)
   db.transaction(() => deleteLineChecks(input))
-  return getGroceries(input.weekStart)
-}
-
-// Stock at home before the week's Monday round, in the line's unit; null
-// removes it.
-export function setGroceryPantry(input: {
-  weekStart: string
-  foodKey: string
-  unit: string
-  name: string
-  quantity: number | null
-}): GroceryView {
-  assertWeekStart(input.weekStart)
-  db.transaction(() => {
-    const food = foodForKey(input.foodKey, loadCatalog())
-    const ids = db
-      .select()
-      .from(groceryPantry)
-      .where(and(eq(groceryPantry.weekStart, input.weekStart), eq(groceryPantry.foodKey, input.foodKey)))
-      .all()
-      .filter((row) => inGroceryUnit(food, row.unit, row.quantity).unit === input.unit)
-      .map((row) => row.id)
-    if (ids.length > 0) db.delete(groceryPantry).where(inArray(groceryPantry.id, ids)).run()
-    if (input.quantity !== null && input.quantity > 0) {
-      db.insert(groceryPantry)
-        .values({
-          weekStart: input.weekStart,
-          foodKey: input.foodKey,
-          name: input.name,
-          unit: input.unit,
-          quantity: input.quantity,
-          updatedAt: Date.now(),
-        })
-        .run()
-    }
-  })
   return getGroceries(input.weekStart)
 }
 
@@ -698,7 +647,7 @@ export function setGroceryFoodRules(input: GroceryFoodRulesInput): GroceryView {
 
 // Rules belong to catalog foods. A plan label of this week's list that is not
 // in the catalog becomes a food named as printed, with the label as alias;
-// pantry stock and checkmarks recorded under the label follow it.
+// checkmarks (and legacy pantry stock) recorded under the label follow it.
 function catalogFoodId(weekStart: string, foodKey: string): number {
   const food = foodForKey(foodKey, loadCatalog())
   if (food) return food.id

@@ -26,7 +26,7 @@ function line(view: GroceryView, round: 'monday' | 'thursday', name: string) {
     .find((candidate) => candidate.name === name)
 }
 
-test('groceries follow the planned week, explicit food rules, pantry, and purchases', async (t) => {
+test('groceries follow the ready days, explicit food rules, and purchases', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'mealio-groceries-test-'))
   const previousPath = process.env.DATABASE_PATH
   process.env.DATABASE_PATH = join(directory, 'groceries.sqlite')
@@ -39,7 +39,7 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     migrate(db, { migrationsFolder: './drizzle' })
     const { getOrCreateUnit } = await import('./catalog')
     const { activatePlanVersion, createPlanVersion, ensureMeal } = await import('./plans')
-    const { clearWeekFreeMeal, confirmDay, getWeek, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
+    const { clearWeekFreeMeal, getWeek, setWeekFreeMeal, setWeekMealChoices, swapWeekMeals } = await import('./weeks')
     const groceries = await import('./groceries')
 
     const version = createPlanVersion('Piano sintetico')
@@ -87,14 +87,14 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     activatePlanVersion(version, '2026-10-01')
     const weekStart = '2026-10-19'
 
-    // Diet availability keeps manual actions reachable, but drafts contribute no foods.
+    // Days without open choices count at once; a day with an open choice contributes no foods.
     const original = groceries.getGroceries(weekStart)
     assert.equal(original.weekStatus, 'unconfirmed')
     assert.equal(original.planned, true)
-    assert.equal(original.unplannedDays.length, 7)
+    assert.deepEqual(original.unplannedDays, [{ date: '2026-10-21', dayName: 'Mercoledì', unresolvedChoices: 1 }])
     assert.deepEqual(original.openChoices, [])
     assert.equal(line(original, 'monday', 'Merluzzo'), undefined)
-    assert.deepEqual(original.foods, [])
+    assert.equal(line(original, 'monday', 'Uova')?.needed, 2)
     // Manual items are separate from the derived list; retrying an addition adds nothing.
     const item = { weekStart, round: 'thursday' as const, id: randomUUID(), label: 'Detersivo', quantityText: null }
     groceries.addGroceryManualItem(item)
@@ -107,11 +107,10 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     const fish = getWeek(weekStart).days[2]!.meals.find((meal) => meal.slot === 'dinner')!.rows[0]!
     const salmon = fish.options.find((option) => option.type === 'component' && option.component.label === 'Salmone')!
     setWeekMealChoices(weekStart, '2026-10-21', 'dinner', { combination: null, meal: null, rows: { [fish.key]: salmon.key } })
-    assert.equal(line(groceries.getGroceries(weekStart), 'monday', 'Salmone'), undefined)
-    for (const day of getWeek(weekStart).days) confirmDay(weekStart, day.date)
-
     const planned = groceries.getGroceries(weekStart)
+    assert.deepEqual(planned.unplannedDays, [])
     assert.deepEqual(planned.openChoices, [])
+    assert.equal(line(planned, 'monday', 'Merluzzo'), undefined)
     assert.deepEqual(planned.freeMeal, { date: '2026-10-24', dayName: 'Sabato', slot: 'lunch' })
     // Before Thursday everything goes on Monday; without storage rules, later uses go on Thursday.
     assert.equal(line(planned, 'monday', 'Pasta integrale')?.needed, 240)
@@ -132,8 +131,7 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     const jars = line(planned, 'monday', 'Yogurt bianco')!
     assert.deepEqual([jars.unit, jars.needed, jars.uses[0]!.unitText], ['vasetto', 4, 'vasetti'])
 
-    // Pantry and checkmarks recorded under a plan label follow it into the catalog.
-    groceries.setGroceryPantry({ weekStart, foodKey: 'label:pasta integrale', unit: 'g', name: 'Pasta integrale', quantity: 100 })
+    // Checkmarks recorded under a plan label follow it into the catalog.
     groceries.setGroceryCheck({ weekStart, round: 'monday', foodKey: 'label:uova', unit: '', cooked: false, name: 'Uova', quantity: 2 })
     groceries.setGroceryCheck({
       weekStart,
@@ -157,10 +155,10 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     })
     const ruled = groceries.setGroceryFoodRules({ ...rules, foodKey: "label:olio extravergine d'oliva", alwaysAtHome: true })
     const pasta = line(ruled, 'monday', 'Pasta integrale')!
-    // Kept for a year, all six lunches are bought on Monday: 480 g minus 100 g at home, in 500 g packages.
+    // Kept for a year, all six lunches are bought on Monday: 480 g in 500 g packages.
     assert.deepEqual(
-      [pasta.needed, pasta.pantry, pasta.packages, pasta.toBuy, pasta.surplus],
-      [480, 100, 1, 500, 120],
+      [pasta.needed, pasta.packages, pasta.toBuy, pasta.surplus],
+      [480, 1, 500, 20],
     )
     assert.equal(line(ruled, 'thursday', 'Pasta integrale'), undefined)
     const yogurt = line(ruled, 'monday', 'Yogurt bianco')!
@@ -188,26 +186,19 @@ test('groceries follow the planned week, explicit food rules, pantry, and purcha
     groceries.setGroceryCheck({ weekStart, round: 'monday', foodKey: pasta.foodKey, unit: 'g', cooked: false, name: pasta.name, quantity: 500 })
     const swapped = swapWeekMeals(weekStart, ['2026-10-20', '2026-10-23'], ['breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner'])
     assert.equal(swapped.days[1]!.meals.find((meal) => meal.slot === 'dinner')!.rows[0]!.components[0]!.label, 'Petto di pollo')
-    const draft = groceries.getGroceries(weekStart)
-    assert.deepEqual(draft.unplannedDays.map((day) => day.date), ['2026-10-20', '2026-10-23'])
-    assert.equal(line(draft, 'thursday', 'Uova'), undefined)
-    assert.equal(line(draft, 'monday', 'Petto di pollo')?.needed, 150)
-    confirmDay(weekStart, '2026-10-20')
-    confirmDay(weekStart, '2026-10-23')
     const changed = groceries.getGroceries(weekStart)
     assert.equal(line(changed, 'monday', 'Petto di pollo')?.toBuy, 300)
     const chicken = line(changed, 'thursday', 'Petto di pollo')!
     assert.deepEqual([chicken.toBuy, chicken.check?.quantity, chicken.delta], [200, 350, -150])
+    assert.deepEqual(changed.unplannedDays, [])
     assert.deepEqual(changed.rounds[0]!.noLongerNeeded, [
       { foodKey: 'label:uova', name: 'Uova', unit: '', cooked: false, quantity: 2 },
     ])
     assert.equal(line(changed, 'thursday', 'Uova')?.needed, 2)
     assert.equal(line(changed, 'monday', 'Pasta integrale')?.delta, 0)
 
-    groceries.setGroceryPantry({ weekStart, foodKey: pasta.foodKey, unit: 'g', name: pasta.name, quantity: null })
     clearWeekFreeMeal(weekStart)
-    assert.equal(groceries.getGroceries(weekStart).unplannedDays.some((day) => day.date === '2026-10-24'), true)
-    confirmDay(weekStart, '2026-10-24')
+    assert.deepEqual(groceries.getGroceries(weekStart).unplannedDays, [])
     const more = line(groceries.getGroceries(weekStart), 'monday', 'Pasta integrale')!
     assert.deepEqual([more.needed, more.packages, more.toBuy, more.delta], [560, 2, 1000, 500])
     const cleared = groceries.clearGroceryCheck({ weekStart, round: 'monday', foodKey: 'label:uova', unit: '', cooked: false })

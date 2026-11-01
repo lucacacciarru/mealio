@@ -1,186 +1,42 @@
-/* Errors stay visible while scrolling a long list; confirmations stay in flow. */
-.grocery-feedback:has([role="alert"]) {
-  position: sticky;
-  top: 8px;
-  z-index: 5;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--paper);
-  box-shadow: 0 8px 20px rgba(39, 51, 44, .06);
-}
-.grocery-feedback .message { margin: 0; }
-.grocery-feedback .secondary-button { min-height: 40px; margin-top: 8px; }
-
-.grocery-status-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  color: var(--green-dark);
-  font-size: 13px;
-  font-weight: 650;
-  text-underline-offset: 3px;
-}
-.grocery-list .week-status h3:not(:first-child) { margin-top: 14px; }
-.grocery-draft-days { margin-top: 10px; font-size: 13px; }
-.grocery-draft-days ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin: 6px 0 0;
-  padding: 0;
-  line-height: 1.5;
-  list-style: none;
-}
-.week-status > .grocery-free-meal { font-size: 13px; }
-.week-status > .grocery-free-meal:not(:first-child) { margin-top: 10px; }
-
-.grocery-week { display: grid; min-width: 0; gap: 20px; }
-.grocery-secondary { min-width: 0; }
-.grocery-secondary > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  color: var(--green-dark);
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-}
-.grocery-secondary > summary::before,
-.grocery-item-details > summary::before { content: "+"; flex: 0 0 auto; }
-.grocery-secondary[open] > summary::before,
-.grocery-item-details[open] > summary::before { content: "−"; }
-.grocery-secondary > .grocery-panel { margin-top: 12px; }
-.grocery-secondary > summary:focus-visible,
-.grocery-item-details > summary:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-.grocery-aisle { display: grid; min-width: 0; gap: 8px; }
-.grocery-aisle h3,
-.grocery-aisle h4 {
-  margin: 0;
-  color: var(--green-dark);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-.grocery-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.grocery-item {
-  min-width: 0;
-  padding: 12px 14px 2px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
-  overflow-wrap: anywhere;
-}
-.grocery-item-checked { border-color: #c7d8c6; background: #f6faf4; }
-.grocery-item-main { display: flex; align-items: flex-start; gap: 12px; }
-.screen-content .grocery-item-main input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  min-height: 0;
-  margin: 1px 0 0;
-  accent-color: var(--green);
-}
-.grocery-item-main label,
-.grocery-item-title {
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 2px 12px;
-  min-width: 0;
-  font-size: 15px;
-  line-height: 1.45;
-  cursor: pointer;
-}
-.grocery-item-title { cursor: default; }
-.grocery-item-name { font-weight: 650; }
-.grocery-item-checked .grocery-item-name { color: var(--muted); text-decoration: line-through; }
-.grocery-item-amount { color: var(--green-dark); font-weight: 650; }
-.grocery-item-main .text-button { flex: 0 0 auto; min-height: 44px; }
-.grocery-item-facts,
-.grocery-item-warnings,
-.grocery-delta,
-.grocery-item-details { margin: 4px 0 0 36px; }
-.grocery-item-facts { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.grocery-item-warnings {
-  display: grid;
-  gap: 2px;
-  padding: 0;
-  color: #765f24;
-  font-size: 12px;
-  line-height: 1.5;
-  list-style: none;
-}
-.grocery-delta {
-  display: grid;
-  justify-items: start;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-left: 3px solid var(--green);
-  border-radius: 0 8px 8px 0;
-  background: var(--sage);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.grocery-delta p { margin: 0; }
-.grocery-delta-add { border-left-color: #be9a45; background: #fbf6e7; color: #62502a; }
-.grocery-delta .secondary-button { min-height: 40px; margin-top: 4px; padding: 0 14px; font-size: 13px; }
-.grocery-item-details > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  color: var(--green-dark);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
-}
-.grocery-item-details-body { display: grid; gap: 12px; padding: 4px 0 6px; }
-.grocery-uses {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding-left: 16px;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
-}
+.grocery-list { width: min(100%, 680px); margin: 0 auto; }
+.grocery-list p { margin: 0; }
+.grocery-feedback { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding: 10px 14px; border-radius: 10px; background: #fbeeec; color: var(--error); font-size: 14px; }
+.grocery-empty { margin-top: 24px !important; color: var(--muted); text-align: center; }
+.grocery-progress { margin: 18px 0 4px !important; color: var(--muted); font-size: 13px; text-align: center; }
+.grocery-week { display: grid; gap: 18px; }
+.grocery-aisle { display: grid; min-width: 0; gap: 4px; }
+.grocery-aisle h3 { margin: 0; padding: 4px 0; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.grocery-items { display: grid; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); list-style: none; overflow: hidden; }
+.grocery-item { padding: 4px 8px 4px 14px; }
+.grocery-item + .grocery-item { border-top: 1px solid #efece4; }
+.grocery-item-main { display: flex; align-items: center; gap: 12px; min-height: 52px; }
+.grocery-item-main input[type="checkbox"] { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; accent-color: var(--green); }
+.grocery-item-spacer { flex: 0 0 22px; }
+.grocery-item-main label { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; min-width: 0; padding: 10px 0; cursor: pointer; }
+.grocery-item-name { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.grocery-item-amount { color: var(--green-dark); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.grocery-item-checked .grocery-item-name,
+.grocery-item-checked .grocery-item-amount { color: var(--muted); text-decoration: line-through; }
+.grocery-item-more { flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 18px; }
+.grocery-item-more[aria-expanded="true"] { background: var(--sage); color: var(--green-dark); }
+.grocery-item:has(.grocery-item-more[aria-expanded="true"]) { background: #fbfaf5; }
+.grocery-item-facts { margin: -6px 0 8px 34px !important; color: #765f24; font-size: 12px; line-height: 1.5; }
+.grocery-delta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0 0 8px 34px; padding: 6px 10px; border-radius: 8px; background: #fbf6e7; color: #62502a; font-size: 13px; }
+.grocery-item-details { display: grid; gap: 10px; margin: 0 0 12px 34px; font-size: 13px; }
+.grocery-uses { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; line-height: 1.5; }
 .grocery-use-when { color: var(--muted); }
-.grocery-inline-form,
-.grocery-rules-form { max-width: 420px; margin-top: 0; }
-.grocery-field-row { display: flex; gap: 8px; }
-.grocery-field-row input { flex: 1 1 auto; }
-.week-form .grocery-field-row .secondary-button { flex: 0 0 auto; margin-top: 0; }
-.grocery-rules-form fieldset { display: grid; gap: 7px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.grocery-rules-form legend { margin-bottom: 4px; padding: 0; font-size: 13px; font-weight: 700; }
-.grocery-rules-form .secondary-button { justify-self: start; }
-.grocery-rules-form .field-hint { margin: 0; }
-.week-form .grocery-checkbox-label { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
-.week-form .grocery-checkbox-label input { width: 20px; height: 20px; min-height: 0; margin: 0; accent-color: var(--green); }
-
-.grocery-removed .grocery-item-amount { color: var(--muted); }
-.grocery-removed .field-hint { margin: 0; }
-.grocery-manual-form { max-width: 420px; margin-top: 0; }
-.grocery-manual .grocery-item { padding-bottom: 12px; }
-
-.grocery-panel-list { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.5; }
-.grocery-panel-list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
-.grocery-panel-list .grocery-item-details { flex: 1 1 100%; margin: 0; }
-.grocery-panel-list .grocery-item-details > summary { font-size: 14px; }
-
-@media (max-width: 480px) {
-  .grocery-item { padding: 12px 12px 2px; }
-  .grocery-item-facts,
-  .grocery-item-warnings,
-  .grocery-delta,
-  .grocery-item-details { margin-left: 0; }
-}
+.grocery-inline-form { display: grid; gap: 4px; max-width: 360px; }
+.grocery-inline-form label { font-weight: 600; }
+.grocery-field-row { display: flex; align-items: center; gap: 8px; }
+.grocery-field-row input { flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font: inherit; }
+.grocery-item-details > .text-button { justify-self: start; }
+.grocery-remove { flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 20px; }
+.grocery-manual { margin-top: 18px; }
+.grocery-add { display: flex; gap: 8px; margin-top: 8px; }
+.grocery-add input { flex: 1 1 auto; min-width: 0; min-height: 48px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font: inherit; }
+.grocery-add .secondary-button { flex: 0 0 auto; margin-top: 0; }
+.grocery-home { margin-top: 24px; font-size: 14px; }
+.grocery-home > summary { min-height: 44px; color: var(--muted); cursor: pointer; }
+.grocery-home ul { display: grid; gap: 4px; margin: 4px 0 0; padding: 0; list-style: none; }
+.grocery-home li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grocery-list :is(a, button, input, summary):focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }

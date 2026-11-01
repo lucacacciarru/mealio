@@ -19,19 +19,30 @@ test('diary preserves recorded plans, retries once, and synchronizes past offlin
     migrate(db, { migrationsFolder: './drizzle' })
     const { diaryPlanSnapshots, mealCheckIns, PLAN_SLOTS } = await import('../db/schema')
     const { createPlanVersion, ensureMeal, addComponent, activatePlanVersion } = await import('./plans')
-    const { confirmDay, getWeek, setWeekFreeMeal } = await import('./weeks')
+    const { getWeek, setWeekMealChoices } = await import('./weeks')
     const { DiaryConflictError, getDiaryDay, saveDiaryCheckIns } = await import('./diary')
     const version = createPlanVersion('Piano sintetico')
     for (let day = 0; day < 7; day += 1) {
       for (const slot of PLAN_SLOTS) {
-        addComponent(ensureMeal(version, day, slot), { label: `Alimento sintetico ${slot}`, quantity: 80, state: 'raw' })
+        const meal = ensureMeal(version, day, slot)
+        addComponent(meal, { label: `Alimento sintetico ${slot}`, quantity: 80, state: 'raw', alternativeGroup: slot === 'lunch' ? 'base' : null })
+        // Lunch offers "A oppure B": the day is not ready until it is chosen.
+        if (slot === 'lunch') addComponent(meal, { label: 'Alternativa sintetica', quantity: 80, state: 'raw', alternativeGroup: 'base' })
       }
     }
     activatePlanVersion(version, '2026-10-01')
+    function chooseLunch(date: string, choose = true) {
+      const instant = new Date(`${date}T00:00:00Z`)
+      instant.setUTCDate(instant.getUTCDate() - (instant.getUTCDay() + 6) % 7)
+      const weekStart = instant.toISOString().slice(0, 10)
+      const lunch = getWeek(weekStart).days.find((day) => day.date === date)!.meals.find((meal) => meal.slot === 'lunch')!
+      const row = lunch.rows[0]!
+      setWeekMealChoices(weekStart, date, 'lunch', { combination: null, meal: null, rows: choose ? { [row.key]: row.options[0]!.key } : {} })
+    }
     const draft = getDiaryDay('2026-10-19')
     assert.deepEqual(draft.meals, [])
     assert.deepEqual(getDiaryDay().meals, [])
-    confirmDay('2026-10-19', '2026-10-19')
+    chooseLunch('2026-10-19')
     const preview = getDiaryDay('2026-10-19')
     assert.equal(preview.today, '2026-10-17')
     assert.equal(preview.date, '2026-10-19')
@@ -102,7 +113,7 @@ test('diary preserves recorded plans, retries once, and synchronizes past offlin
       entries: [{ slot: 'breakfast', followed: true, note: null, recordedAt: Date.parse('2026-10-16T10:00:00Z'), baseRevision: 0 }],
     }), (cause) => cause instanceof HttpError && cause.status === 409)
 
-    confirmDay(historyDay.weekStart, '2026-10-17')
+    chooseLunch('2026-10-17')
     const original = getDiaryDay()
     const breakfast = original.meals.find((meal) => meal.plan.slot === 'breakfast')!
     assert.equal(breakfast.checkIn, null)
@@ -121,24 +132,23 @@ test('diary preserves recorded plans, retries once, and synchronizes past offlin
     assert.deepEqual(retried.checkIn, { followed: false, note: 'Eccezione sintetica', recordedAt: Date.now(), revision: 2 })
     assert.throws(() => saveDiaryCheckIns({ ...first, entries: correction.entries }), (cause) => cause instanceof HttpError && cause.status === 409)
 
-    // Publishing was explicit; a subsequent edit makes unrecorded slots drafts again.
-    setWeekFreeMeal(original.weekStart, original.date, 'breakfast', 'Descrizione sintetica')
+    // Reopening a choice hides unrecorded slots again; recorded ones keep their snapshot.
+    chooseLunch(original.date, false)
     const changed = getDiaryDay()
-    // Planner changes cannot turn the recorded breakfast into a free meal.
     assert.deepEqual(changed.meals.find((meal) => meal.plan.slot === 'breakfast')!.plan, breakfast.plan)
     assert.deepEqual(changed.meals.map((meal) => meal.plan.slot), ['breakfast'])
     assert.throws(() => saveDiaryCheckIns({
       ...first, id: randomUUID(), entries: [
         { slot: 'lunch', followed: true, note: null, recordedAt: Date.now(), baseRevision: 0 },
       ],
-    }), (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('non è pianificato'))
+    }), (cause) => cause instanceof HttpError && cause.status === 409 && cause.message.includes('scelte da fare'))
     // Recorded slots remain editable without republishing or changing their snapshot.
     const recordedEdit = saveDiaryCheckIns({
       ...first, id: randomUUID(), entries: [{ ...correction.entries[0]!, baseRevision: 2 }],
     })
     assert.equal(recordedEdit.meals[0]!.checkIn!.revision, 3)
     assert.deepEqual(recordedEdit.meals[0]!.plan, breakfast.plan)
-    confirmDay(original.weekStart, original.date)
+    chooseLunch(original.date)
     assert.throws(() => saveDiaryCheckIns({
       ...first, id: randomUUID(), entries: [
         { slot: 'lunch', followed: true, note: null, recordedAt: Date.now(), baseRevision: 0 },

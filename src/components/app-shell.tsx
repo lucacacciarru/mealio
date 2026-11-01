@@ -3,7 +3,7 @@ import type { ReactNode, SyntheticEvent } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import './app-shell.css'
 
-type ViewState = 'loading' | 'signed-out' | 'signed-in'
+type ViewState = 'loading' | 'setup' | 'signed-out' | 'signed-in'
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [view, setView] = useState<ViewState>('loading')
@@ -22,7 +22,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
       if (requestId !== sessionRequest.current || authBusy.current) return
       if (!response.ok) {
-        setView('signed-out')
+        const payload = await response.json().catch(() => ({})) as { needsSetup?: boolean }
+        if (requestId !== sessionRequest.current || authBusy.current) return
+        setView(payload.needsSetup ? 'setup' : 'signed-out')
         if (response.status === 401) {
           if (sessionWasValid.current) setError('Sessione scaduta. Accedi di nuovo.')
           sessionWasValid.current = false
@@ -92,9 +94,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     setError('')
     setBusy(true)
     const form = event.currentTarget
-    const password = new FormData(form).get('password')
+    const data = new FormData(form)
+    const password = data.get('password')
+    const setup = view === 'setup'
+    if (setup && password !== data.get('confirm')) {
+      setError('Le due password non coincidono.')
+      authBusy.current = false
+      setBusy(false)
+      return
+    }
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(setup ? '/api/auth/setup' : '/api/auth/login', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }),
       })
@@ -140,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
       <main className="page-shell access-shell">
         <header className="topbar">
-          <Link className="brand" to="/" search={{ start: undefined }} aria-label="Mealio, settimana">
+          <Link className="brand" to="/" search={{ date: undefined }} aria-label="Mealio, oggi">
             <span className="brand-mark" aria-hidden="true">m</span><span>mealio</span>
           </Link>
           <span className="topbar-note">il tuo spazio personale</span>
@@ -151,19 +161,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           </section>
         ) : (
           <section className="panel login-panel">
-            <span className="eyebrow">Accesso personale</span>
+            <span className="eyebrow">{view === 'setup' ? 'Primo accesso' : 'Accesso personale'}</span>
             <h1>La dieta, la settimana, la spesa.</h1>
-            <p>Accedi per organizzare i pasti del tuo PDF.</p>
+            <p>{view === 'setup' ? 'Scegli la password per entrare. Ti servirà una volta per dispositivo.' : 'Accedi per organizzare i pasti del tuo PDF.'}</p>
             <form className="login-form" onSubmit={signIn}>
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">{view === 'setup' ? 'Nuova password (almeno 8 caratteri)' : 'Password'}</label>
               <div className="password-field">
-                <input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required minLength={1} disabled={busy} />
+                <input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={view === 'setup' ? 'new-password' : 'current-password'} required minLength={view === 'setup' ? 8 : 1} disabled={busy} />
                 <button className="password-visibility" type="button" aria-label={showPassword ? 'Nascondi password' : 'Mostra password'} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)} disabled={busy}>
                   {showPassword ? 'Nascondi' : 'Mostra'}
                 </button>
               </div>
+              {view === 'setup' && (
+                <>
+                  <label htmlFor="password-confirm">Ripeti la password</label>
+                  <input id="password-confirm" name="confirm" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required minLength={8} disabled={busy} />
+                </>
+              )}
               {error && <p className="message error-message" role="alert">{error}</p>}
-              <button className="primary-button" type="submit" disabled={busy}>{busy ? 'Verifica…' : 'Accedi'}</button>
+              <button className="primary-button" type="submit" disabled={busy}>{busy ? 'Verifica…' : view === 'setup' ? 'Salva e entra' : 'Accedi'}</button>
             </form>
             <p className="privacy-note">Accesso riservato a una sola persona.</p>
           </section>
@@ -176,11 +192,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-frame">
       <a className="skip-link" href="#main-content">Vai al contenuto</a>
       <aside className="app-sidebar" aria-label="Mealio">
-        <Link className="brand" to="/" search={{ start: undefined }} aria-label="Mealio, settimana">
+        <Link className="brand" to="/" search={{ date: undefined }} aria-label="Mealio, oggi">
           <span className="brand-mark" aria-hidden="true">m</span><span>mealio</span>
         </Link>
         <nav className="app-navigation" aria-label="Navigazione principale">
-          <Link className="app-nav-link" to="/" search={{ start: undefined }} activeOptions={{ exact: true, includeSearch: false }} aria-current={pathname === '/settimana' ? 'page' : undefined}>
+          <Link className="app-nav-link" to="/" search={{ date: undefined }} activeOptions={{ exact: true, includeSearch: false }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            <span>Oggi</span>
+          </Link>
+          <Link className="app-nav-link" to="/settimana" search={{ start: undefined, date: undefined }} activeOptions={{ includeSearch: false }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M9 9v12m6-12v12M7 2v4m10-4v4"/></svg>
             <span>Settimana</span>
           </Link>
@@ -188,13 +208,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8zM9 8V6a3 3 0 0 1 6 0v2"/></svg>
             <span>Spesa</span>
           </Link>
-          <Link className="app-nav-link" to="/dieta">
+        </nav>
+        <div className="app-sidebar-footer">
+          <Link className="app-diet-link" to="/dieta" aria-label="La tua dieta">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8m-8 4h6"/></svg>
             <span>Dieta</span>
           </Link>
-        </nav>
-        <div className="app-sidebar-footer">
-          <Link className="app-diary-link" to="/calendario" search={{ date: undefined }}>Diario dei pasti</Link>
           <button className="app-sign-out" type="button" onClick={() => void signOut()} disabled={busy}>{busy ? 'Attendi…' : 'Esci'}</button>
         </div>
       </aside>

@@ -11,6 +11,14 @@ export const sessions = sqliteTable(
   (table) => [index('sessions_expires_at_idx').on(table.expiresAt)],
 )
 
+// Single-user settings managed by the app itself: the password hash and the
+// secret used to key login rate limits.
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
 export const loginRateLimits = sqliteTable('login_rate_limits', {
   addressHash: text('address_hash').primaryKey(),
   windowStartedAt: integer('window_started_at').notNull(),
@@ -252,8 +260,9 @@ export const planEquivalenceItems = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Weekly snapshots and saved draft choices are independent of publication.
-// Only an explicit per-day confirmation in week_days publishes its meals.
+// A week is saved on its first edit, check-in or purchase. A day is ready,
+// and counts for groceries and the diary, once it has no open choices;
+// week_days (the former per-day publication) is kept but no longer read.
 // Each week meal keeps its source plan snapshot; swaps move snapshots,
 // choices, and the free meal between dates of the same plan version.
 // ---------------------------------------------------------------------------
