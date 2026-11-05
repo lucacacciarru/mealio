@@ -40,11 +40,13 @@ export async function readBodyUpTo(request: Request, limit: number): Promise<Buf
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), totalBytes)
 }
 
+// Compares host and port only: behind Railway's proxy, which terminates HTTPS,
+// the server sees http:// while the browser's Origin says https://.
 export function requestHasSameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
   if (!origin) return true
   try {
-    return new URL(origin).origin === new URL(request.url).origin
+    return new URL(origin).host === new URL(request.url).host
   } catch {
     return false
   }
